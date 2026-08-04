@@ -6,12 +6,13 @@
 import asyncio
 import logging
 
-from src.config import get_settings
+from src.config import Settings, get_settings
 from src.database import create_mongo_client, init_documents
-from src.employees.constants import Role
+from src.employees.constants import ROLE_LLM_PROFILES, Role
 from src.employees.domain import DeskPosition
 from src.employees.repository import EmployeeRepository
 from src.employees.service import EmployeeService
+from src.llm.profiles import load_profiles
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +32,30 @@ def _desk_at(index: int, total: int) -> DeskPosition:
     return DeskPosition(x=offset, y=0.0, z=0.0)
 
 
+def _reject_unknown_role_profiles(settings: Settings) -> None:
+    """직무별 프로파일이 카탈로그에 실제로 있는지 확인한다(§8.2).
+
+    이 검증을 `employees` 도메인이 아니라 시드가 하는 이유: `employees`가 `llm`을 알면
+    두 도메인이 서로를 참조하게 된다. 스크립트는 조립 지점이라 양쪽을 봐도 된다.
+    """
+    catalog = load_profiles(settings.llm_profiles_json)
+    unknown = {
+        role.value: profile for role, profile in ROLE_LLM_PROFILES.items() if profile not in catalog
+    }
+    if unknown:
+        raise SystemExit(
+            f"카탈로그에 없는 프로파일을 직무에 배정했습니다: {unknown}. "
+            f"사용 가능: {sorted(catalog)}"
+        )
+
+
 async def main() -> None:
     settings = get_settings()
     logging.basicConfig(level=settings.log_level)
     client = create_mongo_client(settings)
     try:
         await init_documents(client, settings.mongo_db, skip_indexes=True)
+        _reject_unknown_role_profiles(settings)
         service = EmployeeService(EmployeeRepository())
         total = len(_SEED_EMPLOYEES)
         for index, (name, role) in enumerate(_SEED_EMPLOYEES):

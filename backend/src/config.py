@@ -1,3 +1,4 @@
+from decimal import Decimal
 from functools import lru_cache
 from typing import Literal
 
@@ -33,6 +34,24 @@ class Settings(BaseSettings):
 
     # 워커 인증 키. SecretStr이라 로그·에러 트레이스에 값이 찍히지 않는다.
     worker_api_key: SecretStr = SecretStr(_DEFAULT_WORKER_API_KEY)
+
+    # ─── LLM: 키 (프로바이더 단위, 전부 SECRET) ────────────────
+    # 키는 이 프로세스에만 존재한다. 워커는 프록시를 경유하므로 키를 갖지 않는다(ADR-007).
+    minimax_api_key: SecretStr = SecretStr("")
+    minimax_base_url: str = "https://api.minimax.io/v1"
+    anthropic_api_key: SecretStr = SecretStr("")
+    anthropic_base_url: str = "https://api.anthropic.com/v1"
+
+    # ─── LLM: 카탈로그·단가 (ConfigMap 대상, 비밀 아님) ────────
+    # 비우면 llm/profiles.py의 DEFAULT_PROFILES를 쓴다.
+    llm_profiles_json: str | None = None
+    # 모델 단위 1M 토큰당 USD. 코드에 단가 상수를 두지 않는다 — 자주 바뀐다.
+    llm_pricing_json: str | None = None
+    llm_timeout_seconds: float = 60.0
+    # 원장은 KRW로 기록한다. 환율도 설정값.
+    usd_krw_rate: Decimal = Decimal("1380")
+    # 0 이하면 한도 검사를 하지 않는다.
+    llm_daily_cost_limit_krw: Decimal = Decimal("5000")
 
     @model_validator(mode="after")
     def _reject_default_worker_key_outside_local(self) -> "Settings":

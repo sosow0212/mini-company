@@ -11,6 +11,10 @@ from src.dependencies import require_worker_key
 from src.employees.router import router as employees_router
 from src.exceptions import AppError, app_error_handler
 from src.health import router as health_router
+from src.ledger.router import internal_router as ledger_internal_router
+from src.ledger.router import public_router as ledger_public_router
+from src.llm.gateway import build_gateway
+from src.llm.router import internal_router as llm_internal_router
 from src.tasks.router import internal_router as tasks_internal_router
 from src.tasks.router import public_router as tasks_public_router
 
@@ -29,6 +33,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.mongo = create_mongo_client(settings)
     await init_documents(app.state.mongo, settings.mongo_db, skip_indexes=True)
     app.state.http = httpx.AsyncClient()
+    # 카탈로그·단가 검증이 여기서 일어난다. 잘못된 프로파일이면 예외로 부팅이 멈춘다 —
+    # 런타임 첫 호출에서 발견되면 이미 늦다(§8.2). 담기는 값은 전부 불변이고
+    # 설정에서 재구성 가능하므로 ADR-008에 걸리지 않는다.
+    app.state.llm_gateway = build_gateway(settings)
     try:
         yield
     finally:
@@ -43,13 +51,19 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(employees_router, prefix=API_PREFIX)
     app.include_router(tasks_public_router, prefix=API_PREFIX)
+    app.include_router(ledger_public_router, prefix=API_PREFIX)
     # 내부 라우터는 include 시점에 한 번에 잠근다. 엔드포인트마다 Depends를 붙이면
     # 새 엔드포인트를 추가할 때 반드시 하나 빠뜨린다(블루프린트 §5).
-    app.include_router(
+    for internal_router in (
         tasks_internal_router,
-        prefix=INTERNAL_PREFIX,
-        dependencies=[Depends(require_worker_key)],
-    )
+        ledger_internal_router,
+        llm_internal_router,
+    ):
+        app.include_router(
+            internal_router,
+            prefix=INTERNAL_PREFIX,
+            dependencies=[Depends(require_worker_key)],
+        )
     return app
 
 

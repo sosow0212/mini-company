@@ -3,13 +3,14 @@ from pymongo import AsyncMongoClient
 
 from src.config import Settings
 from src.employees.models import EmployeeDocument
+from src.ledger.models import LedgerEntryDocument
 from src.tasks.models import ActivityDocument, TaskDocument
 
 _SERVER_SELECTION_TIMEOUT_MS = 3000
 
 # Phase가 진행되며 여기에 Document를 추가한다. 등록을 빠뜨리면 해당 컬렉션 쿼리가
 # 런타임에 CollectionWasNotInitialized로 터진다.
-DOCUMENT_MODELS = [EmployeeDocument, TaskDocument, ActivityDocument]
+DOCUMENT_MODELS = [EmployeeDocument, TaskDocument, ActivityDocument, LedgerEntryDocument]
 
 
 def create_mongo_client(settings: Settings) -> AsyncMongoClient:
