@@ -19,7 +19,9 @@ class Settings(BaseSettings):
     app_env: Literal["local", "staging", "prod"] = "local"
     log_level: str = "INFO"
 
-    mongo_uri: str = "mongodb://localhost:27017/?directConnection=true"
+    # 27018: 로컬 설치 mongod(27017)와 compose mongo를 주소로 구분한다.
+    mongo_uri: str = "mongodb://localhost:27018/?directConnection=true"
+    mongo_db: str = "mini_company"
 
     # gRPC(19530)가 아니라 관리 포트다. Milvus는 두 포트를 같은 프로세스에서 서빙하므로
     # healthz 200은 gRPC도 떠 있다는 뜻이다. 벡터 접속 URI는 Phase 7에서 추가한다.

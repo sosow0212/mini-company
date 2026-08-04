@@ -1,0 +1,34 @@
+from datetime import datetime
+
+from src.employees.constants import EmployeeStatus, Role
+from src.employees.domain import Employee
+from src.schemas import ApiModel
+
+
+class DeskResponse(ApiModel):
+    x: float
+    y: float
+    z: float
+
+
+class EmployeeResponse(ApiModel):
+    id: str
+    name: str
+    role: Role
+    status: EmployeeStatus
+    desk: DeskResponse
+    hired_at: datetime
+
+    @classmethod
+    def from_domain(cls, employee: Employee) -> "EmployeeResponse":
+        # ObjectId는 문자열로 내린다. 프론트는 이 값을 그대로 키로 쓴다.
+        if employee.id is None:
+            raise ValueError("저장되지 않은 직원은 응답으로 내릴 수 없다")
+        return cls(
+            id=str(employee.id),
+            name=employee.name,
+            role=employee.role,
+            status=employee.status,
+            desk=DeskResponse(x=employee.desk.x, y=employee.desk.y, z=employee.desk.z),
+            hired_at=employee.hired_at,
+        )

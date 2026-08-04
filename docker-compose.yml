@@ -14,7 +14,10 @@ services:
     profiles: [infra, app]
     # standalone은 트랜잭션·change stream을 못 쓴다. 단일 노드라도 replica set으로 띄운다.
     command: ["--replSet", "rs0", "--bind_ip_all"]
-    ports: ["27017:27017"]
+    # 호스트에 로컬 설치된 mongod가 127.0.0.1:27017을 점유하고 있으면, 호스트에서
+    # localhost:27017로 붙는 프로세스가 이 컨테이너가 아닌 로컬 mongod에 조용히 붙는다.
+    # 27018로 비켜서 어느 쪽에 붙는지 주소만 봐도 알 수 있게 한다.
+    ports: ["27018:27017"]
     volumes: [mongo_data:/data/db]
     healthcheck:
       # rs.status()는 초기화 전에 예외를 던진다.
