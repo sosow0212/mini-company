@@ -23,8 +23,17 @@ VENV := backend/.venv/bin
 dev: ## 호스트에서 백엔드 실행 (핫리로드). cwd를 루트로 둬야 .env를 찾는다.
 	$(VENV)/uvicorn src.main:app --reload --app-dir backend --port 8000
 
-test:
-	cd backend && .venv/bin/pytest
+indexes: ## 인덱스 생성. K8s에서는 Job으로 돈다.
+	cd backend && .venv/bin/python -m src.scripts.create_indexes
+
+seed: indexes ## 직원 5명 시드 (멱등)
+	cd backend && .venv/bin/python -m src.scripts.seed
+
+test: ## 단위 테스트. 인프라 불필요.
+	cd backend && .venv/bin/pytest tests/unit
+
+test-int: ## 통합 테스트. 인프라 필요(make up).
+	cd backend && .venv/bin/pytest tests/integration
 
 lint:
 	cd backend && .venv/bin/ruff check . && .venv/bin/ruff format --check .

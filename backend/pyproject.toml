@@ -12,6 +12,7 @@ dependencies = [
     "uvicorn[standard]>=0.52",
     "pydantic-settings>=2.14",
     "pymongo>=4.15",
+    "beanie>=2.1",
     "httpx>=0.28",
 ]
 
