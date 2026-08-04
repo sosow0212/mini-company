@@ -17,6 +17,7 @@ class EmployeeResponse(ApiModel):
     role: Role
     status: EmployeeStatus
     desk: DeskResponse
+    current_task_id: str | None
     hired_at: datetime
 
     @classmethod
@@ -30,5 +31,8 @@ class EmployeeResponse(ApiModel):
             role=employee.role,
             status=employee.status,
             desk=DeskResponse(x=employee.desk.x, y=employee.desk.y, z=employee.desk.z),
+            current_task_id=(
+                str(employee.current_task_id) if employee.current_task_id is not None else None
+            ),
             hired_at=employee.hired_at,
         )

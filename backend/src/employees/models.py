@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import ClassVar
 
 import pymongo
-from beanie import Document
+from beanie import Document, PydanticObjectId
 from pymongo import IndexModel
 
 from src.employees.constants import EmployeeStatus, Role
@@ -17,6 +17,7 @@ class EmployeeDocument(Document):
     status: EmployeeStatus = EmployeeStatus.OFFLINE
     # 임베디드 필드는 순수 BaseModel이라 도메인의 것을 그대로 재사용한다.
     desk: DeskPosition
+    current_task_id: PydanticObjectId | None = None
     hired_at: datetime
 
     class Settings:

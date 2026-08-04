@@ -1,0 +1,80 @@
+"""백엔드 API 클라이언트.
+
+워커는 오직 이 클라이언트를 통해서만 백엔드와 통신한다(ADR-001).
+이 파일에 DB 드라이버(pymongo/pymilvus)나 LLM SDK를 import하면 설계 위반이다.
+"""
+
+import httpx
+from pydantic import BaseModel, SecretStr
+
+_INTERNAL_PREFIX = "/internal/v1"
+
+
+class TaskStarted(BaseModel):
+    """응답 전체를 복제하지 않고 하네스에 필요한 필드만 받는다. 스키마 소유자는 백엔드."""
+
+    id: str
+
+
+class BackendApiClient:
+    def __init__(
+        self,
+        base_url: str,
+        worker_api_key: SecretStr,
+        *,
+        timeout: float = 10.0,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self._http = httpx.AsyncClient(
+            base_url=base_url,
+            headers={"X-Worker-Key": worker_api_key.get_secret_value()},
+            timeout=timeout,
+            transport=transport,
+        )
+
+    async def __aenter__(self) -> "BackendApiClient":
+        return self
+
+    async def __aexit__(self, *_exc_info: object) -> None:
+        await self.aclose()
+
+    async def aclose(self) -> None:
+        await self._http.aclose()
+
+    async def find_employee_id(self, name: str) -> str | None:
+        """공개 API로 내 id를 해석한다. 워커는 자기 이름 외의 신원을 모른다."""
+        res = await self._http.get("/api/v1/employees")
+        res.raise_for_status()
+        for employee in res.json():
+            if employee["name"] == name:
+                return employee["id"]
+        return None
+
+    async def start_task(self, *, employee_id: str, kind: str) -> TaskStarted:
+        res = await self._http.post(
+            f"{_INTERNAL_PREFIX}/tasks",
+            json={"employeeId": employee_id, "kind": kind},
+        )
+        res.raise_for_status()
+        return TaskStarted.model_validate(res.json())
+
+    async def add_activity(self, task_id: str, *, level: str, message: str) -> None:
+        res = await self._http.post(
+            f"{_INTERNAL_PREFIX}/tasks/{task_id}/activities",
+            json={"level": level, "message": message},
+        )
+        res.raise_for_status()
+
+    async def finish_task(
+        self,
+        task_id: str,
+        *,
+        status: str,
+        summary: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        res = await self._http.patch(
+            f"{_INTERNAL_PREFIX}/tasks/{task_id}",
+            json={"status": status, "summary": summary, "error": error},
+        )
+        res.raise_for_status()

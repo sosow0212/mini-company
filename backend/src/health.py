@@ -28,9 +28,9 @@ async def live() -> dict[str, str]:
 
 @router.get("/ready")
 async def ready(
-        request: Request,
-        response: Response,
-        settings: Annotated[Settings, Depends(get_settings)],
+    request: Request,
+    response: Response,
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, object]:
     """readiness. 실패하면 트래픽에서만 제외되고 재시작되지 않는다."""
     mongo_ok, milvus_ok = await asyncio.gather(
