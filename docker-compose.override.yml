@@ -1,0 +1,9 @@
+# 로컬 개발 전용. docker compose가 자동으로 병합한다.
+# 기본 docker-compose.yml은 프로덕션에 가깝게 유지해 K8s 매니페스트로 번역 가능하게 둔다.
+services:
+  backend:
+    volumes:
+      - ./backend/src:/app/src:ro
+    # uvicorn이 cwd(/app)를 sys.path 앞에 넣으므로, 마운트한 소스가 설치본을 가린다.
+    command:
+      ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
