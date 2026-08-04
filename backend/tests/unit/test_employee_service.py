@@ -1,7 +1,7 @@
 import pytest
 from beanie import PydanticObjectId
 
-from src.employees.constants import EmployeeStatus, Role
+from src.employees.constants import ROLE_LLM_PROFILES, EmployeeStatus, Role
 from src.employees.domain import DeskPosition
 from src.employees.exceptions import EmployeeNotFound
 from src.employees.service import EmployeeService
@@ -96,6 +96,29 @@ async def test_hire_or_update_preserves_status_when_employee_already_exists(
     updated = await service.hire_or_update(name="일하는 직원", role=Role.ANALYST, desk=_DESK)
 
     assert updated.status is EmployeeStatus.WORKING
+
+
+async def test_hire_or_update_assigns_profile_from_role(make_employee) -> None:
+    """프로파일 배정 규칙은 ROLE_LLM_PROFILES 한 곳에만 있어야 한다(§8.3)."""
+    service = _service()
+
+    writer = await service.hire_or_update(name="작가", role=Role.WRITER, desk=_DESK)
+    analyst = await service.hire_or_update(name="분석가", role=Role.ANALYST, desk=_DESK)
+
+    assert writer.llm_profile == ROLE_LLM_PROFILES[Role.WRITER]
+    assert analyst.llm_profile == ROLE_LLM_PROFILES[Role.ANALYST]
+    assert writer.llm_profile != analyst.llm_profile
+
+
+async def test_hire_or_update_realigns_profile_when_role_changes(make_employee) -> None:
+    """직무가 바뀌면 프로파일도 따라온다 — 갈라지면 'WRITER인데 cheap'이 조용히 남는다."""
+    existing = make_employee("전직하는 직원", role=Role.TRADER, llm_profile="cheap")
+    service = _service(existing)
+
+    updated = await service.hire_or_update(name="전직하는 직원", role=Role.WRITER, desk=_DESK)
+
+    assert updated.role is Role.WRITER
+    assert updated.llm_profile == ROLE_LLM_PROFILES[Role.WRITER]
 
 
 async def test_hire_or_update_preserves_hired_at_when_employee_already_exists(

@@ -5,7 +5,7 @@
 """
 
 import httpx
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel, Field, SecretStr
 
 _INTERNAL_PREFIX = "/internal/v1"
 
@@ -14,6 +14,19 @@ class TaskStarted(BaseModel):
     """응답 전체를 복제하지 않고 하네스에 필요한 필드만 받는다. 스키마 소유자는 백엔드."""
 
     id: str
+
+
+class Completion(BaseModel):
+    """LLM 프록시 응답.
+
+    `costKrw`를 문자열로 받고 계산에 쓰지 않는다 — 워커는 비용을 다루지 않는다.
+    모델명도 서버가 알려주는 값이지 워커가 고르는 값이 아니다(ADR-007).
+    """
+
+    content: str
+    profile: str
+    model: str
+    cost_krw: str = Field(alias="costKrw")
 
 
 class BackendApiClient:
@@ -64,6 +77,24 @@ class BackendApiClient:
             json={"level": level, "message": message},
         )
         res.raise_for_status()
+
+    async def complete(
+        self,
+        *,
+        employee_id: str,
+        messages: list[dict[str, str]],
+        task_id: str | None = None,
+    ) -> Completion:
+        """LLM 프록시 호출. 워커는 프로바이더를 직접 부르지 않는다(ADR-007).
+
+        `model`을 보내지 않는다 — 어떤 모델을 쓸지는 서버가 직원의 프로파일로 정한다.
+        """
+        payload: dict[str, object] = {"employeeId": employee_id, "messages": messages}
+        if task_id is not None:
+            payload["taskId"] = task_id
+        res = await self._http.post(f"{_INTERNAL_PREFIX}/llm/completions", json=payload)
+        res.raise_for_status()
+        return Completion.model_validate(res.json())
 
     async def finish_task(
         self,

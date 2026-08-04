@@ -32,6 +32,9 @@ Milvus RAG로 적재해 챗봇으로 질의하는 학습용 시스템. FastAPI +
 
 ### 백엔드 (Python 3.12+, FastAPI)
 
+- 새 도메인(애그리거트) 패키지를 추가할 때 `router.py` 상단 docstring에 그 애그리거트가
+  **무엇을 소유하고 무엇을 소유하지 않는지** 2~4줄로 적는다. 경계가 흐려지는 순간이
+  설계 부패의 시작이므로, 옆 도메인에 속한 것을 명시적으로 배제하는 문장을 포함한다.
 - 도메인별 패키지 구조: `router / schemas / models / repository / service / dependencies / constants / exceptions`.
   **필요한 파일만 만든다.** 내용이 없는 파일을 관례상 생성하지 않는다.
 - 레이어 책임 (`router → service → repository → models`):

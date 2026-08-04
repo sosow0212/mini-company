@@ -7,7 +7,7 @@ from pymongo.errors import PyMongoError
 
 from src.config import get_settings
 from src.database import create_mongo_client, init_documents
-from src.employees.constants import EmployeeStatus, Role
+from src.employees.constants import DEFAULT_LLM_PROFILE, EmployeeStatus, Role
 from src.employees.domain import DeskPosition, Employee
 from src.tasks.constants import ActivityLevel, TaskStatus
 from src.tasks.domain import Activity, Task
@@ -27,6 +27,7 @@ def make_employee():
         status: EmployeeStatus = EmployeeStatus.OFFLINE,
         desk: DeskPosition | None = None,
         current_task_id: PydanticObjectId | None = None,
+        llm_profile: str = DEFAULT_LLM_PROFILE,
         hired_at: datetime = _HIRED_AT,
         with_id: bool = True,
     ) -> Employee:
@@ -37,6 +38,7 @@ def make_employee():
             status=status,
             desk=desk or DeskPosition(x=0.0, y=0.0, z=0.0),
             current_task_id=current_task_id,
+            llm_profile=llm_profile,
             hired_at=hired_at,
         )
 

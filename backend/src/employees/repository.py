@@ -65,6 +65,7 @@ def _to_domain(document: EmployeeDocument) -> Employee:
         status=document.status,
         desk=document.desk,
         current_task_id=document.current_task_id,
+        llm_profile=document.llm_profile,
         hired_at=document.hired_at,
     )
 
@@ -77,5 +78,6 @@ def _to_document(employee: Employee) -> EmployeeDocument:
         status=employee.status,
         desk=employee.desk,
         current_task_id=employee.current_task_id,
+        llm_profile=employee.llm_profile,
         hired_at=employee.hired_at,
     )

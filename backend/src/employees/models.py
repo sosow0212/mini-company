@@ -7,7 +7,7 @@ import pymongo
 from beanie import Document, PydanticObjectId
 from pymongo import IndexModel
 
-from src.employees.constants import EmployeeStatus, Role
+from src.employees.constants import DEFAULT_LLM_PROFILE, EmployeeStatus, Role
 from src.employees.domain import DeskPosition
 
 
@@ -18,6 +18,7 @@ class EmployeeDocument(Document):
     # 임베디드 필드는 순수 BaseModel이라 도메인의 것을 그대로 재사용한다.
     desk: DeskPosition
     current_task_id: PydanticObjectId | None = None
+    llm_profile: str = DEFAULT_LLM_PROFILE
     hired_at: datetime
 
     class Settings:

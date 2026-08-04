@@ -14,6 +14,7 @@ AI 직원(에이전트)이 수행한 작업을 3D 오피스로 시각화하고, 
 | 1 | `employees` 도메인 (router→service→repository), 시드, 계약 테스트 | 완료 |
 | 2 | `tasks`+`activities` 도메인, 내부 API(`X-Worker-Key`), 워커 하네스 | 완료 |
 | 3 | `ledger` 기록·집계·역분개·렌더러, 숫자 무결성 테스트 | 완료 |
+| 4 | `llm` 게이트웨이 (프로파일·단가·비용 자동 기록·폴백), MiniMax/Anthropic 어댑터 | 완료 |
 
 ## 실행
 
@@ -75,6 +76,30 @@ POST  /internal/v1/tasks/{id}/activities            # 활동 로그 1건 (append
 PATCH /internal/v1/tasks/{id}                       # SUCCEEDED/FAILED → 직원 IDLE/ERROR
 POST  /internal/v1/ledger/entries                   # 원시 트랜잭션 (append-only)
 POST  /internal/v1/ledger/entries/{id}/reversal     # 역분개: 서버가 반대 부호로 기록
+POST  /internal/v1/llm/completions                  # LLM 프록시 (모델은 서버가 결정)
+```
+
+## LLM 게이트웨이 (§8 — 키·모델·비용의 단일 관문)
+
+모든 LLM 호출이 백엔드를 경유한다. 워커·프론트는 프로바이더 SDK를 갖지 않는다(ADR-007).
+
+- **키는 백엔드 프로세스에만** 있다. K8s로 가도 Secret 마운트 지점이 하나다.
+- **모델 선택 권한이 워커에 없다.** 요청에 `model` 필드가 없고, 직원의 `llmProfile`이 정한다.
+- **비용을 우회할 수 없다.** 토큰 사용량 → 자체 단가표 → `LedgerEntry(LLM_COST)` 자동 기록.
+  프로바이더가 응답에 비용을 담아 보내도 쓰지 않는다(`LlmResult`에 비용 필드가 없다).
+- 프로파일 실패 시 `fallback`으로 **1홉만** 재시도하고 Activity에 WARN을 남긴다.
+- `LLM_DAILY_COST_LIMIT_KRW` 초과 시 프로바이더를 호출하기 전에 429로 거부한다.
+
+3계층 분리 — 키는 환경변수(Secret), 카탈로그는 코드+`LLM_PROFILES_JSON`(ConfigMap),
+직원별 선택은 MongoDB(`Employee.llm_profile`). DB에는 프로파일 **이름만** 저장한다.
+
+부팅 시 카탈로그를 검증한다: 알 수 없는 프로바이더, 없는 fallback, 1홉 초과 폴백,
+단가 없는 모델 → **부팅 거부**. 키 누락은 `APP_ENV=local`에서만 경고로 넘어간다
+(LLM이 필요 없는 작업 중에 앱이 아예 안 뜨면 개발이 막힌다).
+
+```bash
+# 키 없이 전 경로를 확인하려면 base_url을 로컬 목 서버로 돌린다
+MINIMAX_API_KEY=dummy MINIMAX_BASE_URL=http://localhost:18080/v1 make dev
 ```
 
 ## 숫자 무결성 (§7 — 이 프로젝트의 심장)

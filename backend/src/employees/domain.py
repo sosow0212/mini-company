@@ -12,7 +12,7 @@ from datetime import datetime
 from beanie import PydanticObjectId
 from pydantic import BaseModel, ConfigDict
 
-from src.employees.constants import EmployeeStatus, Role
+from src.employees.constants import DEFAULT_LLM_PROFILE, EmployeeStatus, Role
 
 
 class DeskPosition(BaseModel):
@@ -36,4 +36,7 @@ class Employee(BaseModel):
     desk: DeskPosition
     # 지금 수행 중인 작업. None이면 비어 있다. 직원 1명은 동시에 작업 1걸만 가진다.
     current_task_id: PydanticObjectId | None = None
+    # 프로파일 **이름만** 저장한다. 모델명을 저장하면 모델 교체 때 마이그레이션이 필요하고,
+    # 존재하지 않는 모델명이 DB에 남는다(§8.1의 3계층 분리).
+    llm_profile: str = DEFAULT_LLM_PROFILE
     hired_at: datetime

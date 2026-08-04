@@ -18,6 +18,8 @@ class EmployeeResponse(ApiModel):
     status: EmployeeStatus
     desk: DeskResponse
     current_task_id: str | None
+    # 프로파일 이름만 노출한다. 모델명·키는 서버 밖으로 나가지 않는다(§8.6).
+    llm_profile: str
     hired_at: datetime
 
     @classmethod
@@ -34,5 +36,6 @@ class EmployeeResponse(ApiModel):
             current_task_id=(
                 str(employee.current_task_id) if employee.current_task_id is not None else None
             ),
+            llm_profile=employee.llm_profile,
             hired_at=employee.hired_at,
         )
