@@ -34,4 +34,6 @@ class Employee(BaseModel):
     role: Role
     status: EmployeeStatus = EmployeeStatus.OFFLINE
     desk: DeskPosition
+    # 지금 수행 중인 작업. None이면 비어 있다. 직원 1명은 동시에 작업 1걸만 가진다.
+    current_task_id: PydanticObjectId | None = None
     hired_at: datetime

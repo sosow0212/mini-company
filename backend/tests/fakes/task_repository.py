@@ -1,0 +1,95 @@
+from beanie import PydanticObjectId
+
+from src.tasks.constants import TaskStatus
+from src.tasks.domain import Activity, Task
+
+
+class InMemoryTaskRepository:
+    """TaskRepository의 경계 대체물. mock이 아니라 실제로 동작하는 구현체다.
+
+    실제 Mongo 구현과 동작이 갈라지면 테스트가 거짓말을 하므로,
+    tests/integration의 계약 스위트를 두 구현에 동일하게 돌린다.
+    """
+
+    def __init__(self, tasks: list[Task] | None = None) -> None:
+        self._by_id: dict[PydanticObjectId, Task] = {}
+        for task in tasks or []:
+            self._by_id[_require_task_id(task)] = task
+
+    async def get(self, task_id: PydanticObjectId) -> Task | None:
+        return self._by_id.get(task_id)
+
+    async def list(
+        self,
+        *,
+        employee_id: PydanticObjectId | None = None,
+        status: TaskStatus | None = None,
+    ) -> list[Task]:
+        matched = [
+            task
+            for task in self._by_id.values()
+            if (employee_id is None or task.employee_id == employee_id)
+            and (status is None or task.status == status)
+        ]
+        # 최신 우선 + _id tie-break. 실제 구현의 정렬과 같아야 한다.
+        return sorted(matched, key=lambda task: (task.created_at, task.id), reverse=True)
+
+    async def save(self, task: Task) -> Task:
+        stored = task if task.id is not None else task.model_copy(update={"id": PydanticObjectId()})
+        self._by_id[_require_task_id(stored)] = stored
+        return stored
+
+
+class InMemoryActivityRepository:
+    """append-only 대체물. 갱신·삭제 메서드가 없는 것이 진짜 구현과의 약속이다."""
+
+    def __init__(self, activities: list[Activity] | None = None) -> None:
+        self._by_id: dict[PydanticObjectId, Activity] = {}
+        for activity in activities or []:
+            self._by_id[_require_activity_id(activity)] = activity
+
+    async def get(self, activity_id: PydanticObjectId) -> Activity | None:
+        return self._by_id.get(activity_id)
+
+    async def append(self, activity: Activity) -> Activity:
+        stored = (
+            activity
+            if activity.id is not None
+            else activity.model_copy(update={"id": PydanticObjectId()})
+        )
+        self._by_id[_require_activity_id(stored)] = stored
+        return stored
+
+    async def list_by_employee(
+        self,
+        employee_id: PydanticObjectId,
+        *,
+        limit: int,
+        before: Activity | None = None,
+    ) -> list[Activity]:
+        matched = [
+            activity for activity in self._by_id.values() if activity.employee_id == employee_id
+        ]
+        ordered = sorted(
+            matched, key=lambda activity: (activity.occurred_at, activity.id), reverse=True
+        )
+        if before is not None:
+            before_id = _require_activity_id(before)
+            ordered = [
+                activity
+                for activity in ordered
+                if (activity.occurred_at, activity.id) < (before.occurred_at, before_id)
+            ]
+        return ordered[:limit]
+
+
+def _require_task_id(task: Task) -> PydanticObjectId:
+    if task.id is None:
+        raise ValueError("저장된 작업에는 id가 있어야 한다")
+    return task.id
+
+
+def _require_activity_id(activity: Activity) -> PydanticObjectId:
+    if activity.id is None:
+        raise ValueError("저장된 활동에는 id가 있어야 한다")
+    return activity.id

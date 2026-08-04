@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 PROFILES := --profile infra --profile app
 
-.PHONY: up up-all down clean logs dev test lint fmt
+.PHONY: up up-all down clean logs dev indexes seed test test-int test-e2e test-worker lint fmt worker-demo
 
 up: ## 인프라(mongo/milvus)만 띄운다. 앱은 make dev로 호스트에서 실행.
 	$(COMPOSE) --profile infra up -d
@@ -35,8 +35,19 @@ test: ## 단위 테스트. 인프라 불필요.
 test-int: ## 통합 테스트. 인프라 필요(make up).
 	cd backend && .venv/bin/pytest tests/integration
 
-lint:
+test-e2e: ## e2e 테스트. 인프라 필요(make up).
+	cd backend && .venv/bin/pytest tests/e2e
+
+test-worker: ## 워커 단위 테스트. 인프라 불필요.
+	cd workers && .venv/bin/pytest tests
+
+worker-demo: ## 더미 수집 워커 1회 실행. 백엔드(up-all 또는 dev)와 시드가 먼저 필요하다.
+	cd workers && .venv/bin/python -m src.employees.collector
+
+lint: ## backend와 workers 양쪽. 한쪽만 검사하면 다른 쪽이 조용히 썩는다.
 	cd backend && .venv/bin/ruff check . && .venv/bin/ruff format --check .
+	cd workers && .venv/bin/ruff check . && .venv/bin/ruff format --check .
 
 fmt:
 	cd backend && .venv/bin/ruff check --fix . && .venv/bin/ruff format .
+	cd workers && .venv/bin/ruff check --fix . && .venv/bin/ruff format .

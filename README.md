@@ -12,12 +12,14 @@ AI 직원(에이전트)이 수행한 작업을 3D 오피스로 시각화하고, 
 |---|---|---|
 | 0 | 스캐폴딩, 인프라(Mongo replica set / Milvus), 설정, 헬스 프로브 | 완료 |
 | 1 | `employees` 도메인 (router→service→repository), 시드, 계약 테스트 | 완료 |
+| 2 | `tasks`+`activities` 도메인, 내부 API(`X-Worker-Key`), 워커 하네스 | 완료 |
 
 ## 실행
 
 ```bash
 cp .env.example .env
 python3 -m venv backend/.venv && backend/.venv/bin/pip install -e 'backend[dev]'
+python3 -m venv workers/.venv && workers/.venv/bin/pip install -e 'workers[dev]'
 
 # 1) 인프라만 컨테이너로 (개발 중 권장)
 make up
@@ -30,25 +32,45 @@ make up-all
 curl -s localhost:8000/api/v1/employees
 ```
 
+더미 워커 1회 실행 (백엔드와 시드가 먼저):
+
+```bash
+make worker-demo
+curl -s localhost:8000/api/v1/tasks
+# 활동 로그 확인
+EMPLOYEE_ID=$(curl -s localhost:8000/api/v1/employees | jq -r '.[0].id')
+curl -s "localhost:8000/api/v1/employees/${EMPLOYEE_ID}/activities"
+```
+
 `make up` 직후 Milvus는 부팅에 1분 가까이 걸린다. `docker compose ps`로 `healthy`를 확인한다.
 
 ```bash
-make test      # 단위 테스트. 인프라 불필요, DB 없이 돈다
-make test-int  # 통합/계약 테스트. 인프라 필요
-make lint      # ruff
-make indexes   # 인덱스 생성 (K8s에서는 Job)
-make seed      # 직원 5명 시드 (멱등)
-make down      # 정지
-make clean     # 볼륨까지 삭제
+make test        # 백엔드 단위 테스트. 인프라 불필요, DB 없이 돈다
+make test-int    # 통합/계약 테스트. 인프라 필요
+make test-e2e    # e2e (작업 1건 여정). 인프라 필요
+make test-worker # 워커 단위 테스트. 인프라 불필요
+make lint        # ruff
+make indexes     # 인덱스 생성 (K8s에서는 Job)
+make seed        # 직원 5명 시드 (멱등)
+make worker-demo # 더미 수집 워커 1회 실행
+make down        # 정지
+make clean       # 볼륨까지 삭제
 ```
 
 ## API
 
 ```
-GET /health/live                            # 의존성 검사 없음
-GET /health/ready                           # mongo + milvus 검사, 실패 시 503
-GET /api/v1/employees?role=&status=
-GET /api/v1/employees/{id}
+GET  /health/live                                   # 의존성 검사 없음
+GET  /health/ready                                  # mongo + milvus 검사, 실패 시 503
+GET  /api/v1/employees?role=&status=
+GET  /api/v1/employees/{id}
+GET  /api/v1/employees/{id}/activities?limit=&cursor=   # { items, nextCursor }
+GET  /api/v1/tasks?employee_id=&status=
+
+# 내부 (워커 전용, X-Worker-Key 헤더 필수)
+POST  /internal/v1/tasks                            # 작업 시작 → 직원 WORKING
+POST  /internal/v1/tasks/{id}/activities            # 활동 로그 1건 (append-only)
+PATCH /internal/v1/tasks/{id}                       # SUCCEEDED/FAILED → 직원 IDLE/ERROR
 ```
 
 ## 포트

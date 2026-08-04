@@ -20,6 +20,17 @@ class NotFoundError(AppError):
     message = "요청한 자원을 찾을 수 없습니다."
 
 
+class UnauthorizedError(AppError):
+    status_code = 401
+    code = "unauthorized"
+    message = "인증이 필요합니다."
+
+
+class WorkerKeyUnauthorized(UnauthorizedError):
+    code = "worker_key_unauthorized"
+    message = "유효한 워커 키가 필요합니다."
+
+
 async def app_error_handler(_request: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
