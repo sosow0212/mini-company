@@ -11,6 +11,8 @@ from src.dependencies import require_worker_key
 from src.employees.router import router as employees_router
 from src.exceptions import AppError, app_error_handler
 from src.health import router as health_router
+from src.ledger.router import internal_router as ledger_internal_router
+from src.ledger.router import public_router as ledger_public_router
 from src.tasks.router import internal_router as tasks_internal_router
 from src.tasks.router import public_router as tasks_public_router
 
@@ -43,13 +45,15 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(employees_router, prefix=API_PREFIX)
     app.include_router(tasks_public_router, prefix=API_PREFIX)
+    app.include_router(ledger_public_router, prefix=API_PREFIX)
     # 내부 라우터는 include 시점에 한 번에 잠근다. 엔드포인트마다 Depends를 붙이면
     # 새 엔드포인트를 추가할 때 반드시 하나 빠뜨린다(블루프린트 §5).
-    app.include_router(
-        tasks_internal_router,
-        prefix=INTERNAL_PREFIX,
-        dependencies=[Depends(require_worker_key)],
-    )
+    for internal_router in (tasks_internal_router, ledger_internal_router):
+        app.include_router(
+            internal_router,
+            prefix=INTERNAL_PREFIX,
+            dependencies=[Depends(require_worker_key)],
+        )
     return app
 
 
