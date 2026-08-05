@@ -81,6 +81,11 @@ GET  /api/v1/employees/{id}
 GET  /api/v1/employees/{id}/activities?limit=&cursor=   # { items, nextCursor }
 GET  /api/v1/tasks?employee_id=&status=
 GET  /api/v1/ledger/summary?period=daily|monthly|all    # 서버가 aggregate한 값만
+GET  /api/v1/knowledge/documents?limit=              # 수집 문서 목록
+GET  /api/v1/knowledge/documents/{id}                # 원문 메타 상세
+GET  /api/v1/knowledge/search?q=&topK=&sourceType=   # 벡터 검색 (임계값 미달은 제외)
+POST /api/v1/chat/conversations                      # 대화 시작
+POST /api/v1/chat/conversations/{id}/messages         # 질문 → 근거 달린 답변
 GET  /api/v1/office/snapshot                        # 직원 전체 + 원장 요약 (진입 시 1회)
 WS   /api/v1/ws/office                              # 이후의 변화분만
 
@@ -91,6 +96,8 @@ PATCH /internal/v1/tasks/{id}                       # SUCCEEDED/FAILED → 직�
 POST  /internal/v1/ledger/entries                   # 원시 트랜잭션 (append-only)
 POST  /internal/v1/ledger/entries/{id}/reversal     # 역분개: 서버가 반대 부호로 기록
 POST  /internal/v1/llm/completions                  # LLM 프록시 (모델은 서버가 결정)
+POST  /internal/v1/knowledge/documents              # 문서 적재 (파싱·청킹·임베딩은 서버가)
+POST  /internal/v1/knowledge/documents/{id}/reindex # 청킹·모델 변경 후 재인덱싱
 ```
 
 ## LLM 게이트웨이 (§8 — 키·모델·비용의 단일 관문)
@@ -159,6 +166,89 @@ WS로 받는다. **재연결 시에는 반드시 스냅샷을 다시 조회해�
 - 캐릭터는 GLTF 없이 박스+구 프리미티브다(§12). 말풍선은 `CSS2DRenderer` DOM 라벨이라
   한글 줄바꿈이 공짜다. `prefers-reduced-motion`을 존중한다.
 - 번들: JS 135 kB gzip, CSS 2.3 kB gzip (App page 예산 300/50 kB 이내).
+
+
+## 지식 적재 (Phase 7 — 포맷이 늘어난다는 전제)
+
+수집 대상은 HTML·PDF·마크다운·줄글이고 **앞으로 늘어난다.** 그래서 포맷별 처리를
+레지스트리 뒤에 두었다.
+
+```
+knowledge/parsing/
+├── base.py      DocumentParser Protocol + 공통 헬퍼
+├── plain_text.py / markdown.py / html_document.py / pdf_document.py
+└── registry.py  포맷 → 파서
+```
+
+**새 포맷 추가는 파서 파일 하나 + `ContentType` 한 줄 + registry 한 줄이다.**
+service·router·모델은 수정하지 않는다. 등록을 잊으면 부팅이 거부된다(`missing_parsers`).
+
+**파싱은 워커가 아니라 백엔드가 한다**(ADR-001). 메타 추출 규칙이 워커마다 갈라지면
+같은 HTML에서 다른 제목이 나온다. 워커는 "어디서 무슨 포맷으로 가져왔는지"만 알린다.
+
+### 메타데이터 — 정규 필드 + extra
+
+같은 뜻을 부르는 이름이 소스마다 다르다(`og:title` / `<title>` / PDF `/Title`).
+파서가 그 차이를 흡수해 **정규 필드**를 채우고, 흡수되지 않은 것은 **버리지 않고 `extra`**에
+남긴다. 지금 안 쓰는 태그가 나중에 필요해질 수 있고, 원문을 다시 긁는 비용이 저장보다 크다.
+
+| 필드 | HTML 우선순위 | PDF |
+|---|---|---|
+| title | `og:title` → `<title>` → `twitter:title` | `/Title` |
+| author | `author` → `article:author` | `/Author` |
+| description | `og:description` → `description` | `/Subject` |
+| publishedAt | `article:published_time` → `date` → `<time datetime>` | `/CreationDate` |
+| language | `<html lang>` → `og:locale` | — |
+| keywords | `keywords` (콤마 분리) | `/Keywords` |
+| extra | 나머지 `og:*`·`twitter:*`·사이트 고유 태그 | `/Producer`, `page_count` |
+
+워커가 이미 아는 메타(RSS 피드명 등)는 `metadata`로 넘기면 **파서 추출값 위에 덮인다** —
+명시적으로 준 값이 이긴다.
+
+### 중복·멱등
+
+`content_hash`는 **파싱된 텍스트**로 계산한다. 같은 기사를 HTML로 한 번, PDF로 한 번
+받으면 바이트는 달라도 내용은 같다. 재적재는 오류가 아니라 `skippedDuplicate: true`다.
+
+재인덱싱은 `doc_id` 기준 **delete → insert**다. upsert면 문서가 짧아졌을 때 남은 옛 청크가
+검색에 계속 잡힌다.
+
+### 임베딩 프로바이더
+
+| 값 | 용도 |
+|---|---|
+| `hashing` | **개발용.** 키 없이 적재→검색→인용 전 경로를 돌린다. 의미를 모르는 bag-of-words라 검색 품질은 무의미하다 |
+| `openai` | 실제 임베딩. `OPENAI_API_KEY` 필요 |
+
+**임계값은 프로바이더에 종속된다.** 실측(hashing, 같은 문서):
+
+```
+"반도체 수요"                → 0.354
+"메모리 반도체 수요가 회복"    → 0.500
+"반도체 수요는 어떤가요"       → 0.35 미달   ← 조사가 붙으면 유사도가 급락
+```
+
+그래서 `hashing`으로 개발할 때는 `RAG_SCORE_THRESHOLD=0.1` 정도가 필요하다.
+
+`EMBEDDING_DIM`이 기존 Milvus 컬렉션과 다르면 **부팅을 거부한다**(§15-1). 통과시키면
+예외 없이 검색 품질만 조용히 망가진다.
+
+## RAG 챗봇 (Phase 8)
+
+```
+질문 → 임베딩 → 벡터 검색 → 임계값 통과한 근거가 없으면? → LLM을 부르지 않고 거절
+                                     ↓ 있으면
+                      원장 요약 주입 → LLM → 답변 + citations
+```
+
+- **근거가 없으면 LLM을 호출하지 않는다.** 물어보면 그럴듯한 답을 만들어내므로, 출처 없는
+  답변을 막는 지점은 검색 단계여야 한다. 거절 시 `grounded: false`, 비용 0.
+- **`citations`는 서버가 검색 결과로 채운다.** LLM 출력에서 `[1]`을 파싱하지 않는다 —
+  모델이 표기를 빼먹는 순간 출처 없는 답변이 통과한다.
+- **원장 요약을 항상 주입한다.** blueprint는 "숫자 질문 감지 시"라고 하지만 감지 미탐이
+  나면 모델이 숫자를 지어낸다. 요약은 열 줄이 안 되므로 항상 넣는 편이 싸다.
+- 답변에 근거 없는 숫자가 있으면 경고 로그를 남긴다(하드 차단은 오탐이 많다 — §7.3).
+- 챗봇 비용도 원장에 기록된다(`employee_id: null`) — 챗봇 비용도 회사 손익이다.
 
 ## 포트
 

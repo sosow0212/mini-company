@@ -109,6 +109,7 @@ services:
       # .env는 호스트 기준 주소를 담고 있다. 컨테이너 안에서는 서비스명으로 붙는다.
       MONGO_URI: mongodb://mongo:27017/?replicaSet=rs0
       MILVUS_HEALTH_URL: http://milvus:9091/healthz
+      MILVUS_URI: http://milvus:19530
     ports: ["8000:8000"]
     depends_on:
       mongo: { condition: service_healthy }

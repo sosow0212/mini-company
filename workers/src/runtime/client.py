@@ -29,6 +29,23 @@ class Completion(BaseModel):
     cost_krw: str = Field(alias="costKrw")
 
 
+class IngestedDocument(BaseModel):
+    id: str
+    title: str
+    chunk_count: int = Field(alias="chunkCount")
+
+
+class Ingested(BaseModel):
+    """적재 결과.
+
+    `skippedDuplicate`는 오류가 아니다 — 워커가 같은 피드를 다시 긁는 것은 정상이고,
+    이 플래그로 "새로 적재했는지"를 활동 로그에 남길 수 있다.
+    """
+
+    document: IngestedDocument
+    skipped_duplicate: bool = Field(alias="skippedDuplicate")
+
+
 class BackendApiClient:
     def __init__(
         self,
@@ -95,6 +112,47 @@ class BackendApiClient:
         res = await self._http.post(f"{_INTERNAL_PREFIX}/llm/completions", json=payload)
         res.raise_for_status()
         return Completion.model_validate(res.json())
+
+    async def ingest_document(
+        self,
+        *,
+        employee_id: str,
+        source_type: str,
+        content_type: str,
+        text: str | None = None,
+        base64_content: str | None = None,
+        source_url: str | None = None,
+        title: str | None = None,
+        task_id: str | None = None,
+        metadata: dict[str, str] | None = None,
+    ) -> Ingested:
+        """수집 문서를 백엔드에 넘긴다.
+
+        **파싱하지 않는다.** 텍스트 추출과 메타태그 해석은 백엔드가 한다(ADR-001) —
+        규칙이 워커마다 갈라지면 같은 HTML에서 다른 제목이 나온다. 워커의 일은
+        "어디서 무슨 포맷으로 가져왔는지"를 알려주는 것까지다.
+        """
+        payload: dict[str, object] = {
+            "employeeId": employee_id,
+            "sourceType": source_type,
+            "contentType": content_type,
+            "collectedBy": employee_id,
+        }
+        for key, value in (
+            ("text", text),
+            ("base64Content", base64_content),
+            ("sourceUrl", source_url),
+            ("title", title),
+            ("taskId", task_id),
+        ):
+            if value is not None:
+                payload[key] = value
+        if metadata:
+            payload["metadata"] = metadata
+
+        res = await self._http.post(f"{_INTERNAL_PREFIX}/knowledge/documents", json=payload)
+        res.raise_for_status()
+        return Ingested.model_validate(res.json())
 
     async def finish_task(
         self,

@@ -5,12 +5,16 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import Depends, FastAPI
 
+from src.chat.router import public_router as chat_public_router
 from src.config import get_settings
 from src.database import create_mongo_client, init_documents
 from src.dependencies import require_worker_key
 from src.employees.router import router as employees_router
 from src.exceptions import AppError, app_error_handler
 from src.health import router as health_router
+from src.knowledge.router import internal_router as knowledge_internal_router
+from src.knowledge.router import public_router as knowledge_public_router
+from src.knowledge.settings import build_knowledge_runtime
 from src.ledger.router import internal_router as ledger_internal_router
 from src.ledger.router import public_router as ledger_public_router
 from src.llm.gateway import build_gateway
@@ -42,11 +46,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # service가 publish → 버스 → 이 프로세스의 허브 → WS 연결.
     # 이 조립 지점만 바꾸면 Phase 12에서 RedisEventBus로 교체된다(도메인 코드는 그대로).
     attach_realtime(app, settings)
+
+    # 파서 등록 누락과 임베딩 차원 불일치를 여기서 잡는다. 특히 차원 불일치는
+    # 통과시키면 예외 없이 검색 품질만 조용히 망가진다(§15-1).
+    app.state.knowledge = build_knowledge_runtime(settings)
+    await app.state.knowledge.vector_store.ensure_ready(settings.embedding_dim)
     try:
         yield
     finally:
         # uvicorn이 SIGTERM에 lifespan shutdown을 호출한다.
         await app.state.http.aclose()
+        await app.state.knowledge.client.close()
         await app.state.mongo.close()
 
 
@@ -58,12 +68,15 @@ def create_app() -> FastAPI:
     app.include_router(tasks_public_router, prefix=API_PREFIX)
     app.include_router(ledger_public_router, prefix=API_PREFIX)
     app.include_router(realtime_public_router, prefix=API_PREFIX)
+    app.include_router(knowledge_public_router, prefix=API_PREFIX)
+    app.include_router(chat_public_router, prefix=API_PREFIX)
     # 내부 라우터는 include 시점에 한 번에 잠근다. 엔드포인트마다 Depends를 붙이면
     # 새 엔드포인트를 추가할 때 반드시 하나 빠뜨린다(블루프린트 §5).
     for internal_router in (
         tasks_internal_router,
         ledger_internal_router,
         llm_internal_router,
+        knowledge_internal_router,
     ):
         app.include_router(
             internal_router,
