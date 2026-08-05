@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>mini-company — AI 직원 관제실</title>
+    <meta name="description" content="AI 직원의 작업과 비용을 실시간으로 보는 관제 화면" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <h1 class="brand">
+          mini<span class="brand__dim">-company</span>
+          <span class="brand__tag">관제실</span>
+        </h1>
+        <p id="connection-badge" class="badge" data-state="down">연결 중</p>
+      </header>
+
+      <main class="stage" aria-label="3D 오피스">
+        <div id="scene-host" class="scene-host"></div>
+        <p id="boot-error" class="boot-error" role="alert" hidden></p>
+      </main>
+
+      <aside class="rail" aria-label="관제 패널">
+        <section id="ledger-panel" class="panel" aria-label="원장 요약"></section>
+        <section id="employee-panel" class="panel panel--detail" aria-label="직원 상세" hidden></section>
+        <p class="rail__hint">아바타를 클릭하면 활동 로그가 열립니다.</p>
+      </aside>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

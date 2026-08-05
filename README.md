@@ -16,6 +16,7 @@ AI 직원(에이전트)이 수행한 작업을 3D 오피스로 시각화하고, 
 | 3 | `ledger` 기록·집계·역분개·렌더러, 숫자 무결성 테스트 | 완료 |
 | 4 | `llm` 게이트웨이 (프로파일·단가·비용 자동 기록·폴백), MiniMax/Anthropic 어댑터 | 완료 |
 | 5 | `realtime` EventBus + WS 허브 + `/office/snapshot` | 완료 |
+| 6 | 프론트 Three.js 씬 + 아바타 + 말풍선 + 원장 패널 | 완료 |
 
 ## 실행
 
@@ -30,9 +31,17 @@ make indexes && make seed
 make dev
 curl -s localhost:8000/api/v1/employees
 
-# 2) 백엔드까지 컨테이너로
+# 2) 백엔드 + 프론트까지 컨테이너로
 make up-all
-curl -s localhost:8000/api/v1/employees
+open http://localhost:5173        # 3D 관제실
+```
+
+프론트를 따로 개발할 때는 백엔드가 먼저 떠 있어야 한다(`/api`를 프록시한다):
+
+```bash
+cd frontend && npm install
+make dev-front                    # http://localhost:5173
+make test-front                   # 타입체크 + 단위 테스트
 ```
 
 더미 워커 1회 실행 (백엔드와 시드가 먼저):
@@ -133,10 +142,27 @@ WS로 받는다. **재연결 시에는 반드시 스냅샷을 다시 조회해�
   **replica가 2 이상이면 이벤트가 자기 프로세스의 연결에만 가므로** 부팅 시 경고를 남긴다.
   Phase 12에서 `RedisEventBus`로 교체하면 도메인 코드는 그대로다.
 
+## 프론트엔드 (Phase 6)
+
+프레임워크 없이 TypeScript + Three.js + Vite다. UI 상태가 실제로 복잡해지기 전까지는
+`store → 구독 → 렌더` 한 방향으로 충분하다.
+
+- **CORS를 열지 않는다.** 개발 서버(vite proxy)와 프로덕션(nginx)이 `/api`를 백엔드로
+  프록시해 브라우저 기준 동일 출처를 만든다. 프론트 코드가 환경을 구분하지 않는다.
+- **프론트는 계산하지 않는다**(ADR-006). `store`는 서버가 준 값을 갈아끼우기만 하고,
+  타입도 금액을 `string`으로 못박아 산술을 막는다. 허용되는 변환은 천 단위 콤마뿐이고
+  `Number()`를 거치지 않아 정밀도가 보존된다.
+- **상태색의 단일 출처는 CSS다.** `tokens.css`의 hex를 `scene/palette.ts`가 읽어 three의
+  Color로 바꾼다 — 3D와 DOM이 같은 초록/빨강을 쓴다.
+- 캐릭터는 GLTF 없이 박스+구 프리미티브다(§12). 말풍선은 `CSS2DRenderer` DOM 라벨이라
+  한글 줄바꿈이 공짜다. `prefers-reduced-motion`을 존중한다.
+- 번들: JS 135 kB gzip, CSS 2.3 kB gzip (App page 예산 300/50 kB 이내).
+
 ## 포트
 
 | 포트 | 서비스 |
 |---|---|
+| 5173 | frontend (nginx / vite dev) |
 | 8000 | backend |
 | 27018 | mongo (replica set `rs0`) — 27017이 아닌 이유는 아래 |
 | 19530 | milvus gRPC |
