@@ -1,22 +1,24 @@
 # mini-company
 
-AI 직원(에이전트)이 수행한 작업을 3D 오피스로 시각화하고, 수집한 데이터를 RAG로 적재해
-챗봇으로 질의하는 학습용 시스템.
+AI 직원(에이전트)이 수행한 작업을 3D 오피스로 시각화하고, 수집한 데이터를 RAG로 적재해서
+나만의 에이전트 오피스를 만들어보세요.
+
+![landing.png](docs/img/landing.png)
 
 - 설계: [`docs/PROJECT_BLUEPRINT.md`](docs/PROJECT_BLUEPRINT.md)
 - 에이전트 코딩 규칙: [`AGENTS.md`](AGENTS.md)
 
 ## 현재 진행 상황
 
-| Phase | 산출물 | 상태 |
-|---|---|---|
-| 0 | 스캐폴딩, 인프라(Mongo replica set / Milvus), 설정, 헬스 프로브 | 완료 |
-| 1 | `employees` 도메인 (router→service→repository), 시드, 계약 테스트 | 완료 |
-| 2 | `tasks`+`activities` 도메인, 내부 API(`X-Worker-Key`), 워커 하네스 | 완료 |
-| 3 | `ledger` 기록·집계·역분개·렌더러, 숫자 무결성 테스트 | 완료 |
-| 4 | `llm` 게이트웨이 (프로파일·단가·비용 자동 기록·폴백), MiniMax/Anthropic 어댑터 | 완료 |
-| 5 | `realtime` EventBus + WS 허브 + `/office/snapshot` | 완료 |
-| 6 | 프론트 Three.js 씬 + 아바타 + 말풍선 + 원장 패널 | 완료 |
+| Phase | 산출물                                                      | 상태 |
+|-------|----------------------------------------------------------|----|
+| 0     | 스캐폴딩, 인프라(Mongo replica set / Milvus), 설정, 헬스 프로브        | 완료 |
+| 1     | `employees` 도메인 (router→service→repository), 시드, 계약 테스트  | 완료 |
+| 2     | `tasks`+`activities` 도메인, 내부 API(`X-Worker-Key`), 워커 하네스 | 완료 |
+| 3     | `ledger` 기록·집계·역분개·렌더러, 숫자 무결성 테스트                       | 완료 |
+| 4     | `llm` 게이트웨이 (프로파일·단가·비용 자동 기록·폴백), MiniMax/Anthropic 어댑터 | 완료 |
+| 5     | `realtime` EventBus + WS 허브 + `/office/snapshot`         | 완료 |
+| 6     | 프론트 Three.js 씬 + 아바타 + 말풍선 + 원장 패널                       | 완료 |
 
 ## 실행
 
@@ -160,13 +162,13 @@ WS로 받는다. **재연결 시에는 반드시 스냅샷을 다시 조회해�
 
 ## 포트
 
-| 포트 | 서비스 |
-|---|---|
-| 5173 | frontend (nginx / vite dev) |
-| 8000 | backend |
+| 포트    | 서비스                                          |
+|-------|----------------------------------------------|
+| 5173  | frontend (nginx / vite dev)                  |
+| 8000  | backend                                      |
 | 27018 | mongo (replica set `rs0`) — 27017이 아닌 이유는 아래 |
-| 19530 | milvus gRPC |
-| 9091 | milvus `/healthz` |
+| 19530 | milvus gRPC                                  |
+| 9091  | milvus `/healthz`                            |
 
 ## Mongo 접속 주소가 두 벌인 이유
 

@@ -10,7 +10,7 @@ import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import type { Employee } from '../api/types';
 import { roleAbbreviation, roleKorean } from './format';
 
-const TAG_HEIGHT_Y = 1.16;
+const TAG_HEIGHT_Y = 1.78;
 
 export class NameTag {
   readonly label: CSS2DObject;
