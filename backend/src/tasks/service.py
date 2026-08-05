@@ -6,9 +6,17 @@ from beanie import PydanticObjectId
 from bson.errors import InvalidId
 
 from src.employees.constants import EmployeeStatus
+from src.employees.domain import Employee
 from src.employees.exceptions import EmployeeNotFound
 from src.employees.repository import EmployeeRepositoryProtocol
 from src.pagination import CursorPage
+from src.realtime.bus import EventBus
+from src.realtime.schemas import (
+    ActivityCreated,
+    ActivityCreatedData,
+    EmployeeStatusChanged,
+    EmployeeStatusChangedData,
+)
 from src.tasks.constants import ActivityLevel, TaskStatus
 from src.tasks.domain import Activity, Task
 from src.tasks.exceptions import (
@@ -36,10 +44,12 @@ class TaskService:
         task_repository: TaskRepositoryProtocol,
         activity_repository: ActivityRepositoryProtocol,
         employee_repository: EmployeeRepositoryProtocol,
+        events: EventBus,
     ) -> None:
         self._tasks = task_repository
         self._activities = activity_repository
         self._employees = employee_repository
+        self._events = events
 
     # ─── 공개 조회 ──────────────────────────────────────────────
 
@@ -95,13 +105,13 @@ class TaskService:
                 created_at=now,
             )
         )
-        # 작업 생성과 직원 상태 갱신은 원자적이지 않다. 트랜잭션 경계는
-        # Phase 3에서 원장 기록과 함께 설계한다.
-        await self._employees.save(
+        # 작업 생성과 직원 상태 갱신은 원자적이지 않다(Phase 9 과제).
+        working = await self._employees.save(
             employee.model_copy(
                 update={"status": EmployeeStatus.WORKING, "current_task_id": task.id}
             )
         )
+        await self._publish_status(working)
         return TaskResponse.from_domain(task)
 
     async def add_activity(
@@ -122,6 +132,17 @@ class TaskService:
                 level=level,
                 message=message,
                 occurred_at=datetime.now(UTC),
+            )
+        )
+        await self._events.publish(
+            ActivityCreated(
+                data=ActivityCreatedData(
+                    employee_id=str(activity.employee_id),
+                    task_id=str(activity.task_id) if activity.task_id else None,
+                    level=activity.level,
+                    message=activity.message,
+                    occurred_at=activity.occurred_at,
+                )
             )
         )
         return ActivityResponse.from_domain(activity)
@@ -159,7 +180,7 @@ class TaskService:
         # 직원이 지금도 이 작업을 가리키고 있을 때만 상태를 되돌린다.
         employee = await self._employees.get(task.employee_id)
         if employee is not None and employee.current_task_id == task.id:
-            await self._employees.save(
+            released = await self._employees.save(
                 employee.model_copy(
                     update={
                         # 실패만 ERROR다. 취소는 실패가 아니므로 3D 씬에서 빨간 아바타로
@@ -173,7 +194,24 @@ class TaskService:
                     }
                 )
             )
+            await self._publish_status(released)
         return TaskResponse.from_domain(finished)
+
+    async def _publish_status(self, employee: Employee) -> None:
+        """직원 상태 변경을 3D 씬에 알린다. 아바타 색이 이 이벤트로 바뀐다."""
+        if employee.id is None:
+            return
+        await self._events.publish(
+            EmployeeStatusChanged(
+                data=EmployeeStatusChangedData(
+                    employee_id=str(employee.id),
+                    status=employee.status,
+                    current_task_id=(
+                        str(employee.current_task_id) if employee.current_task_id else None
+                    ),
+                )
+            )
+        )
 
     async def _resolve_cursor(
         self, employee_id: PydanticObjectId, cursor: str | None

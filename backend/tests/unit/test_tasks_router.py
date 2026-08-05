@@ -13,6 +13,7 @@ from src.main import create_app
 from src.tasks.constants import TaskStatus
 from src.tasks.dependencies import get_activity_repository, get_task_repository
 from tests.fakes.employee_repository import InMemoryEmployeeRepository
+from tests.fakes.event_bus import RecordingEventBus
 from tests.fakes.task_repository import (
     InMemoryActivityRepository,
     InMemoryTaskRepository,
@@ -26,6 +27,8 @@ _BASE = datetime(2026, 2, 1, 9, 0, 0, tzinfo=UTC)
 def client_factory():
     def _make(*, employees=(), tasks=(), activities=()) -> AsyncClient:
         app = create_app()
+        # ASGITransport는 lifespan을 실행하지 않으므로 app.state를 직접 채운다.
+        app.state.event_bus = RecordingEventBus()
         # 요청마다 새 fake가 만들어지면 첫 요청의 상태 변경이 다음 요청에서 사라진다.
         # FastAPI는 요청 단위로만 DI를 캐시하므로 인스턴스를 클로저에 고정한다.
         employee_repo = InMemoryEmployeeRepository(list(employees))

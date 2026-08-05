@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     # 워커 인증 키. SecretStr이라 로그·에러 트레이스에 값이 찍히지 않는다.
     worker_api_key: SecretStr = SecretStr(_DEFAULT_WORKER_API_KEY)
 
+    # ─── EventBus (ADR-008) ───────────────────────────────────
+    # replica가 2 이상이면 redis가 필수다. memory면 이벤트가 자기 프로세스의 연결에만
+    # 전달되어 "어떤 사용자는 이벤트를 못 받는" 상태가 된다. redis 구현은 Phase 12.
+    event_bus: Literal["memory", "redis"] = "memory"
+
     # ─── LLM: 키 (프로바이더 단위, 전부 SECRET) ────────────────
     # 키는 이 프로세스에만 존재한다. 워커는 프록시를 경유하므로 키를 갖지 않는다(ADR-007).
     minimax_api_key: SecretStr = SecretStr("")

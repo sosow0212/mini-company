@@ -15,6 +15,7 @@ AI 직원(에이전트)이 수행한 작업을 3D 오피스로 시각화하고, 
 | 2 | `tasks`+`activities` 도메인, 내부 API(`X-Worker-Key`), 워커 하네스 | 완료 |
 | 3 | `ledger` 기록·집계·역분개·렌더러, 숫자 무결성 테스트 | 완료 |
 | 4 | `llm` 게이트웨이 (프로파일·단가·비용 자동 기록·폴백), MiniMax/Anthropic 어댑터 | 완료 |
+| 5 | `realtime` EventBus + WS 허브 + `/office/snapshot` | 완료 |
 
 ## 실행
 
@@ -69,6 +70,8 @@ GET  /api/v1/employees/{id}
 GET  /api/v1/employees/{id}/activities?limit=&cursor=   # { items, nextCursor }
 GET  /api/v1/tasks?employee_id=&status=
 GET  /api/v1/ledger/summary?period=daily|monthly|all    # 서버가 aggregate한 값만
+GET  /api/v1/office/snapshot                        # 직원 전체 + 원장 요약 (진입 시 1회)
+WS   /api/v1/ws/office                              # 이후의 변화분만
 
 # 내부 (워커 전용, X-Worker-Key 헤더 필수)
 POST  /internal/v1/tasks                            # 작업 시작 → 직원 WORKING
@@ -110,6 +113,25 @@ MINIMAX_API_KEY=dummy MINIMAX_BASE_URL=http://localhost:18080/v1 make dev
 - 정정은 UPDATE가 아니라 **반대 부호의 새 엔트리**다. 금액을 요청에서 받지 않고 서버가 원본에서 파생한다.
   같은 엔트리의 두 번째 역분개는 409, DB에서도 partial unique 인덱스로 막힌다.
 - 요약문의 `{{ledger.revenue.monthly}}`는 서버가 치환한다. 알 수 없는 자리표시자나 남은 `{{`는 예외로 발행을 중단시킨다.
+
+## 실시간 채널 (Phase 5)
+
+스냅샷과 WS가 **짝**이다. 진입 시 `/office/snapshot`으로 현재 상태를 받고, 이후 변화분만
+WS로 받는다. **재연결 시에는 반드시 스냅샷을 다시 조회해야 한다** — 이벤트만 이어받으면
+끊긴 동안의 변경이 영구히 유실된다.
+
+```jsonc
+{ "type": "employee.status_changed", "data": { "employeeId": "…", "status": "WORKING" } }
+{ "type": "activity.created",        "data": { "message": "수집 준비 완료", "level": "INFO" } }
+{ "type": "ledger.summary_updated",  "data": { "totals": { … }, "net": "-0.3" } }
+```
+
+- `type`이 판별자인 discriminated union이라 프론트가 `switch (event.type)` 하나로 분기한다.
+- 숫자는 전부 문자열이다. 이벤트의 원장 값도 서버가 aggregate한 결과다(ADR-002).
+- 발행은 **상태를 바꾼 service**가 한다. 상태 전이와 발행이 갈라지면 화면이 조용히 멈춘다.
+- 브로드캐스트는 `EventBus`를 경유한다(ADR-008). 지금은 `InMemoryEventBus`이고,
+  **replica가 2 이상이면 이벤트가 자기 프로세스의 연결에만 가므로** 부팅 시 경고를 남긴다.
+  Phase 12에서 `RedisEventBus`로 교체하면 도메인 코드는 그대로다.
 
 ## 포트
 

@@ -16,6 +16,7 @@ from src.llm.profiles import LlmProfile
 from src.main import create_app
 from src.tasks.dependencies import get_activity_repository, get_task_repository
 from tests.fakes.employee_repository import InMemoryEmployeeRepository
+from tests.fakes.event_bus import RecordingEventBus
 from tests.fakes.ledger_repository import InMemoryLedgerRepository
 from tests.fakes.llm_provider import FakeLlmProvider
 from tests.fakes.task_repository import InMemoryActivityRepository, InMemoryTaskRepository
@@ -28,6 +29,8 @@ _PROFILE = LlmProfile("cheap", "fake", "cheap-model", 0.2, 1_000)
 def client_factory(make_employee):
     def _make(*, employee=None, provider: FakeLlmProvider | None = None):
         app = create_app()
+        # ASGITransport는 lifespan을 실행하지 않으므로 app.state를 직접 채운다.
+        app.state.event_bus = RecordingEventBus()
         employee = employee or make_employee("작가 준", llm_profile="cheap")
         gateway = LlmGateway(
             profiles={"cheap": _PROFILE},

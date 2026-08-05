@@ -5,6 +5,7 @@ from httpx import ASGITransport, AsyncClient
 
 from src.config import get_settings
 from src.main import create_app
+from src.realtime.factory import attach_realtime
 
 WORKER_KEY = get_settings().worker_api_key.get_secret_value()
 
@@ -16,9 +17,11 @@ async def client(mongo_repository_ready: None) -> AsyncIterator[AsyncClient]:
     e2e는 fake로 아무것도 바꾸지 않는다. Beanie가 테스트 DB에 바인딩된 상태(mongo_repository_ready)
     위에서 기본 DI(실제 repository)를 그대로 쓴다.
     lifespan은 실행하지 않는다 — ASGITransport는 lifespan을 돌리지 않고,
-    Beanie 바인딩은 fixture가 이미 핸들링했다.
+    Beanie 바인딩은 fixture가 이미 핸들링했다. 대신 lifespan이 하는 실시간 배선은
+    같은 함수(attach_realtime)로 재현한다 — 손으로 재현하면 조립 순서가 갈라진다.
     """
     app = create_app()
+    attach_realtime(app, get_settings())
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",

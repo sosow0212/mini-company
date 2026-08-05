@@ -19,6 +19,7 @@ from src.ledger.exceptions import (
     UnknownPlaceholder,
 )
 from src.ledger.service import LedgerService
+from tests.fakes.event_bus import RecordingEventBus
 from tests.fakes.ledger_repository import InMemoryLedgerRepository
 
 _NOW = datetime(2026, 8, 4, 12, tzinfo=UTC)
@@ -27,7 +28,7 @@ _LAST_MONTH = datetime(2026, 7, 15, 12, tzinfo=UTC)
 
 def _service(*entries: LedgerEntry) -> tuple[LedgerService, InMemoryLedgerRepository]:
     repository = InMemoryLedgerRepository(list(entries))
-    return LedgerService(repository), repository
+    return LedgerService(repository, RecordingEventBus()), repository
 
 
 async def _record(

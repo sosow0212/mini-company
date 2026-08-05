@@ -14,6 +14,8 @@ from src.ledger.period import resolve_period
 from src.ledger.renderer import render
 from src.ledger.repository import LedgerRepositoryProtocol
 from src.ledger.schemas import LedgerEntryResponse, LedgerSummaryResponse
+from src.realtime.bus import EventBus
+from src.realtime.schemas import LedgerSummaryUpdated
 
 _PLACEHOLDER_ROOT = "ledger"
 _NET_KEY = "net"
@@ -22,8 +24,9 @@ _NET_KEY = "net"
 class LedgerService:
     """비즈니스 로직. Beanie 쿼리 API가 이 파일에 등장하면 레이어가 무너진다."""
 
-    def __init__(self, repository: LedgerRepositoryProtocol) -> None:
+    def __init__(self, repository: LedgerRepositoryProtocol, events: EventBus) -> None:
         self._repository = repository
+        self._events = events
 
     # ─── 기록 (워커 전용) ──────────────────────────────────────
 
@@ -51,6 +54,7 @@ class LedgerService:
                 memo=memo,
             )
         )
+        await self._publish_summary()
         return LedgerEntryResponse.from_domain(entry)
 
     async def reverse_entry(
@@ -86,6 +90,7 @@ class LedgerService:
                 reverses_id=entry_id,
             )
         )
+        await self._publish_summary()
         return LedgerEntryResponse.from_domain(reversal)
 
     # ─── 집계 (공개 조회) ──────────────────────────────────────
@@ -115,6 +120,18 @@ class LedgerService:
             # 요약문과 API가 같은 값을 다르게 적으면 그게 곧 숫자 불신의 시작이다.
             values.update(_placeholder_values(LedgerSummaryResponse.from_domain(summary)))
         return render(template, values)
+
+    async def _publish_summary(self) -> None:
+        """원장이 바뀌면 화면 숫자도 바뀐다.
+
+        기간은 스냅샷과 같은 MONTHLY로 고정한다 — 다른 기간을 보내면 프론트가 스냅샷으로
+        그린 값을 엉뚱한 기간 값으로 덮는다. 기록마다 aggregate 1회가 추가되는 비용은
+        "화면 숫자는 서버가 만든다"(ADR-002)를 지키는 대가다.
+        """
+        summary = await self._summarize(Period.MONTHLY, now=None)
+        await self._events.publish(
+            LedgerSummaryUpdated(data=LedgerSummaryResponse.from_domain(summary))
+        )
 
     async def _summarize(self, period: Period, *, now: datetime | None) -> LedgerSummary:
         start, end = resolve_period(period, now or datetime.now(UTC))

@@ -16,6 +16,7 @@ from src.tasks.exceptions import (
 from src.tasks.repository import ActivityRepositoryProtocol, TaskRepositoryProtocol
 from src.tasks.service import TaskService
 from tests.fakes.employee_repository import InMemoryEmployeeRepository
+from tests.fakes.event_bus import RecordingEventBus
 from tests.fakes.task_repository import (
     InMemoryActivityRepository,
     InMemoryTaskRepository,
@@ -37,7 +38,7 @@ def _service(
     employee_repo = InMemoryEmployeeRepository(list(employees))
     task_repo = InMemoryTaskRepository(list(tasks))
     activity_repo = InMemoryActivityRepository(list(activities))
-    service = TaskService(task_repo, activity_repo, employee_repo)
+    service = TaskService(task_repo, activity_repo, employee_repo, RecordingEventBus())
     return service, employee_repo, task_repo, activity_repo
 
 

@@ -12,6 +12,7 @@ from src.ledger.constants import CATEGORY_UNITS, LedgerCategory
 from src.ledger.dependencies import get_ledger_repository
 from src.ledger.domain import LedgerEntry
 from src.main import create_app
+from tests.fakes.event_bus import RecordingEventBus
 from tests.fakes.ledger_repository import InMemoryLedgerRepository
 
 WORKER_KEY = get_settings().worker_api_key.get_secret_value()
@@ -33,6 +34,8 @@ def _entry(category: LedgerCategory, amount: str, **overrides) -> LedgerEntry:
 def client_factory():
     def _make(*entries: LedgerEntry) -> AsyncClient:
         app = create_app()
+        # ASGITransport는 lifespan을 실행하지 않으므로 app.state를 직접 채운다.
+        app.state.event_bus = RecordingEventBus()
         # 인스턴스를 클로저에 고정한다. 요청마다 새 fake면 이전 요청의 기록이 사라진다.
         repository = InMemoryLedgerRepository(list(entries))
         app.dependency_overrides[get_ledger_repository] = lambda: repository

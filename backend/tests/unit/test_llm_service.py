@@ -30,6 +30,7 @@ from src.llm.service import LlmService
 from src.tasks.constants import ActivityLevel
 from src.tasks.service import TaskService
 from tests.fakes.employee_repository import InMemoryEmployeeRepository
+from tests.fakes.event_bus import RecordingEventBus
 from tests.fakes.ledger_repository import InMemoryLedgerRepository
 from tests.fakes.llm_provider import FakeLlmProvider
 from tests.fakes.task_repository import InMemoryActivityRepository, InMemoryTaskRepository
@@ -60,8 +61,9 @@ class _Harness:
         self.ledger_repository = InMemoryLedgerRepository()
         self.activity_repository = InMemoryActivityRepository()
         task_repository = InMemoryTaskRepository()
-        self.ledger = LedgerService(self.ledger_repository)
-        self.tasks = TaskService(task_repository, self.activity_repository, employees)
+        self.events = RecordingEventBus()
+        self.ledger = LedgerService(self.ledger_repository, self.events)
+        self.tasks = TaskService(task_repository, self.activity_repository, employees, self.events)
         self.gateway = LlmGateway(
             profiles={"cheap": _CHEAP, "writer": _WRITER},
             pricing=pricing if pricing is not None else _PRICING,

@@ -15,6 +15,8 @@ from src.ledger.router import internal_router as ledger_internal_router
 from src.ledger.router import public_router as ledger_public_router
 from src.llm.gateway import build_gateway
 from src.llm.router import internal_router as llm_internal_router
+from src.realtime.factory import attach_realtime
+from src.realtime.router import public_router as realtime_public_router
 from src.tasks.router import internal_router as tasks_internal_router
 from src.tasks.router import public_router as tasks_public_router
 
@@ -37,6 +39,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 런타임 첫 호출에서 발견되면 이미 늦다(§8.2). 담기는 값은 전부 불변이고
     # 설정에서 재구성 가능하므로 ADR-008에 걸리지 않는다.
     app.state.llm_gateway = build_gateway(settings)
+    # service가 publish → 버스 → 이 프로세스의 허브 → WS 연결.
+    # 이 조립 지점만 바꾸면 Phase 12에서 RedisEventBus로 교체된다(도메인 코드는 그대로).
+    attach_realtime(app, settings)
     try:
         yield
     finally:
@@ -52,6 +57,7 @@ def create_app() -> FastAPI:
     app.include_router(employees_router, prefix=API_PREFIX)
     app.include_router(tasks_public_router, prefix=API_PREFIX)
     app.include_router(ledger_public_router, prefix=API_PREFIX)
+    app.include_router(realtime_public_router, prefix=API_PREFIX)
     # 내부 라우터는 include 시점에 한 번에 잠근다. 엔드포인트마다 Depends를 붙이면
     # 새 엔드포인트를 추가할 때 반드시 하나 빠뜨린다(블루프린트 §5).
     for internal_router in (
