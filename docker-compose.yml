@@ -127,6 +127,22 @@ services:
       retries: 6
       start_period: 5s
 
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/docker/frontend.Dockerfile
+    profiles: [app]
+    # nginx가 /api를 backend로 프록시한다 — 브라우저 기준 동일 출처가 되어 CORS가 필요 없다.
+    ports: ["5173:8080"]
+    depends_on:
+      backend: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
+
 volumes:
   mongo_data: {}
   etcd_data: {}

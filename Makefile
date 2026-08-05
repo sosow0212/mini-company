@@ -41,6 +41,12 @@ test-e2e: ## e2e 테스트. 인프라 필요(make up).
 test-worker: ## 워커 단위 테스트. 인프라 불필요.
 	cd workers && .venv/bin/pytest tests
 
+dev-front: ## 프론트 개발 서버. /api를 백엔드로 프록시하므로 백엔드가 먼저 필요하다.
+	cd frontend && npm run dev
+
+test-front: ## 프론트 단위 테스트 + 타입체크.
+	cd frontend && npm run typecheck && npm test
+
 worker-demo: ## 더미 수집 워커 1회 실행. 백엔드(up-all 또는 dev)와 시드가 먼저 필요하다.
 	cd workers && .venv/bin/python -m src.employees.collector
 
