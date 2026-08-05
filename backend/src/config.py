@@ -58,6 +58,32 @@ class Settings(BaseSettings):
     # 0 이하면 한도 검사를 하지 않는다.
     llm_daily_cost_limit_krw: Decimal = Decimal("5000")
 
+    # ─── 임베딩 (Phase 7) ─────────────────────────────────────
+    # hashing은 키 없이 파이프라인을 돌리기 위한 개발용이다. 의미를 모르므로
+    # 프로덕션에서는 openai를 쓴다(부팅 시 경고를 남긴다).
+    embedding_provider: Literal["openai", "hashing"] = "hashing"
+    openai_api_key: SecretStr = SecretStr("")
+    openai_base_url: str = "https://api.openai.com/v1"
+    embedding_model: str = "text-embedding-3-small"
+    # 차원이 바뀌면 기존 벡터를 전부 버려야 한다. 부팅 시 컬렉션과 비교한다(§15-1).
+    embedding_dim: int = 1536
+
+    # ─── Milvus / RAG (Phase 7) ───────────────────────────────
+    milvus_uri: str = "http://localhost:19530"
+    milvus_collection: str = "knowledge_chunks"
+    rag_top_k: int = 8
+    rag_score_threshold: float = 0.35
+    chunk_target_tokens: int = 500
+    chunk_overlap_tokens: int = 80
+    # 비우면 포맷별 기본 전략을 쓴다(HTML·MARKDOWN → heading, PDF·줄글 → paragraph).
+    # 등록되지 않은 이름이면 부팅을 거부한다.
+    chunking_strategy: str | None = None
+
+    # ─── 챗봇 (Phase 8) ───────────────────────────────────────
+    # 챗봇은 직원이 아니라서 프로파일을 이름으로 직접 고른다.
+    chat_llm_profile: str = "reasoner"
+    chat_history_limit: int = 10
+
     @model_validator(mode="after")
     def _reject_default_worker_key_outside_local(self) -> "Settings":
         # 블루프린트 §15 부팅 검증 6: local이 아닌데 기본 키면 즉시 실패한다.

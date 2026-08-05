@@ -1,8 +1,10 @@
 from beanie import init_beanie
 from pymongo import AsyncMongoClient
 
+from src.chat.models import ConversationDocument
 from src.config import Settings
 from src.employees.models import EmployeeDocument
+from src.knowledge.models import SourceDocumentDocument
 from src.ledger.models import LedgerEntryDocument
 from src.tasks.models import ActivityDocument, TaskDocument
 
@@ -10,7 +12,14 @@ _SERVER_SELECTION_TIMEOUT_MS = 3000
 
 # Phase가 진행되며 여기에 Document를 추가한다. 등록을 빠뜨리면 해당 컬렉션 쿼리가
 # 런타임에 CollectionWasNotInitialized로 터진다.
-DOCUMENT_MODELS = [EmployeeDocument, TaskDocument, ActivityDocument, LedgerEntryDocument]
+DOCUMENT_MODELS = [
+    EmployeeDocument,
+    TaskDocument,
+    ActivityDocument,
+    LedgerEntryDocument,
+    SourceDocumentDocument,
+    ConversationDocument,
+]
 
 
 def create_mongo_client(settings: Settings) -> AsyncMongoClient:

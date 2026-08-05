@@ -59,20 +59,39 @@ class LlmService:
         if employee is None:
             raise EmployeeNotFound
 
-        profile = self._resolve_profile(employee.llm_profile)
-        await self._reject_if_over_daily_limit()
-
-        messages = [Message(role=m.role, content=m.content) for m in request.messages]
-        used_profile, result = await self._call_with_fallback(
-            profile, messages, task_id=request.task_id
+        return await self._run(
+            self._resolve_profile(employee.llm_profile),
+            [Message(role=m.role, content=m.content) for m in request.messages],
+            employee_id=request.employee_id,
+            task_id=request.task_id,
         )
+
+    async def complete_with_profile(
+        self, profile_name: str, messages: list[Message]
+    ) -> CompletionResponse:
+        """직원이 아닌 호출자용(챗봇).
+
+        직원이 없으니 프로파일을 이름으로 직접 고른다. 비용은 `employee_id=None`으로
+        기록되지만 **기록 자체를 건너뛰지는 않는다** — 챗봇 비용도 회사 손익이다.
+        """
+        return await self._run(
+            self._resolve_profile(profile_name), messages, employee_id=None, task_id=None
+        )
+
+    async def _run(
+        self,
+        profile: LlmProfile,
+        messages: list[Message],
+        *,
+        employee_id: PydanticObjectId | None,
+        task_id: PydanticObjectId | None,
+    ) -> CompletionResponse:
+        await self._reject_if_over_daily_limit()
+        used_profile, result = await self._call_with_fallback(profile, messages, task_id=task_id)
 
         cost_krw = self._cost_of(used_profile, result)
         await self._record_cost(
-            cost_krw,
-            employee_id=request.employee_id,
-            task_id=request.task_id,
-            profile=used_profile,
+            cost_krw, employee_id=employee_id, task_id=task_id, profile=used_profile
         )
         return CompletionResponse.of(
             result, profile=used_profile, cost_krw=normalized_amount(cost_krw)
@@ -130,7 +149,7 @@ class LlmService:
         self,
         cost_krw: Decimal,
         *,
-        employee_id: PydanticObjectId,
+        employee_id: PydanticObjectId | None,
         task_id: PydanticObjectId | None,
         profile: LlmProfile,
     ) -> None:
