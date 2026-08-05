@@ -27,12 +27,23 @@ class DocumentMetadataEmbedded(BaseModel):
     extra: dict[str, str] = Field(default_factory=dict)
 
 
+class SectionEmbedded(BaseModel):
+    """파싱 시점의 절 구조. 재인덱싱이 최초 적재와 같은 결과를 내려면 필요하다."""
+
+    level: int
+    heading: str
+    text: str
+    path: list[str] = Field(default_factory=list)
+
+
 class SourceDocumentDocument(Document):
     title: str
     source_url: str | None = None
     source_type: SourceType
     content_type: ContentType
     raw_text: str
+    outline: list[SectionEmbedded] = Field(default_factory=list)
+    chunking_strategy: str = ""
     metadata: DocumentMetadataEmbedded = DocumentMetadataEmbedded()
     collected_by: PydanticObjectId
     task_id: PydanticObjectId | None = None

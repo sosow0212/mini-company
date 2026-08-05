@@ -24,6 +24,15 @@ class UnsupportedContentType(AppError):
         self.message = f"지원하지 않는 문서 포맷입니다: {content_type}"
 
 
+class UnsupportedChunkingStrategy(AppError):
+    status_code = 422
+    code = "unsupported_chunking_strategy"
+
+    def __init__(self, name: str, available: list[str]) -> None:
+        super().__init__(name)
+        self.message = f"지원하지 않는 청킹 전략입니다: {name} (사용 가능: {', '.join(available)})"
+
+
 class EmptyDocument(AppError):
     status_code = 422
     code = "empty_document"

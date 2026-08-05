@@ -2,8 +2,13 @@ from typing import Protocol
 
 from beanie import PydanticObjectId
 
+from src.knowledge.chunking.base import Section
 from src.knowledge.domain import DocumentMetadata, SourceDocument
-from src.knowledge.models import DocumentMetadataEmbedded, SourceDocumentDocument
+from src.knowledge.models import (
+    DocumentMetadataEmbedded,
+    SectionEmbedded,
+    SourceDocumentDocument,
+)
 
 
 class DocumentRepositoryProtocol(Protocol):
@@ -57,6 +62,16 @@ def _to_domain(document: SourceDocumentDocument) -> SourceDocument:
         source_type=document.source_type,
         content_type=document.content_type,
         raw_text=document.raw_text,
+        outline=tuple(
+            Section(
+                level=section.level,
+                heading=section.heading,
+                text=section.text,
+                path=tuple(section.path),
+            )
+            for section in document.outline
+        ),
+        chunking_strategy=document.chunking_strategy,
         metadata=DocumentMetadata(
             title=document.metadata.title,
             author=document.metadata.author,
@@ -83,6 +98,16 @@ def _to_document(document: SourceDocument) -> SourceDocumentDocument:
         source_type=document.source_type,
         content_type=document.content_type,
         raw_text=document.raw_text,
+        outline=[
+            SectionEmbedded(
+                level=section.level,
+                heading=section.heading,
+                text=section.text,
+                path=list(section.path),
+            )
+            for section in document.outline
+        ],
+        chunking_strategy=document.chunking_strategy,
         metadata=DocumentMetadataEmbedded(
             title=document.metadata.title,
             author=document.metadata.author,

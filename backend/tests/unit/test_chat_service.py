@@ -13,6 +13,7 @@ import pytest
 from beanie import PydanticObjectId
 
 from src.chat.service import ChatService
+from src.knowledge.chunking.registry import build_chunker_registry
 from src.knowledge.constants import ContentType, SourceType
 from src.knowledge.embeddings.hashing import HashingEmbeddingProvider
 from src.knowledge.parsing.registry import build_parser_registry
@@ -51,6 +52,7 @@ class Harness:
             HashingEmbeddingProvider(dimension=_DIMENSION),
             KnowledgeSettings(
                 parsers=build_parser_registry(),
+                chunkers=build_chunker_registry(),
                 top_k=5,
                 score_threshold=threshold,
                 chunk_target_tokens=60,

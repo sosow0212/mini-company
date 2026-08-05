@@ -17,7 +17,8 @@ from datetime import UTC, datetime
 
 from beanie import PydanticObjectId
 
-from src.knowledge.chunking import split_into_chunks
+from src.knowledge.chunking.base import ChunkingInput
+from src.knowledge.chunking.registry import resolve_chunker
 from src.knowledge.constants import ContentType, SourceType
 from src.knowledge.domain import Chunk, DocumentMetadata, SearchHit, SourceDocument
 from src.knowledge.embeddings.base import EmbeddingProvider
@@ -69,6 +70,7 @@ class KnowledgeService:
         title_hint: str | None = None,
         task_id: PydanticObjectId | None = None,
         metadata_hints: dict[str, str] | None = None,
+        chunking_strategy: str | None = None,
     ) -> IngestResult:
         parser = resolve_parser(self._settings.parsers, content_type)
         parsed = parser.parse(
@@ -99,6 +101,7 @@ class KnowledgeService:
                 source_type=source_type,
                 content_type=content_type,
                 raw_text=parsed.text,
+                outline=parsed.outline,
                 metadata=metadata,
                 collected_by=collected_by,
                 task_id=task_id,
@@ -106,15 +109,24 @@ class KnowledgeService:
                 content_hash=content_hash,
             )
         )
-        indexed = await self._index(saved)
+        indexed = await self._index(saved, strategy_override=chunking_strategy)
         return IngestResult(document=DocumentResponse.from_domain(indexed), skipped_duplicate=False)
 
-    async def reindex(self, doc_id: PydanticObjectId) -> DocumentResponse:
-        """문서 하나를 다시 인덱싱한다. 청킹 파라미터나 임베딩 모델을 바꿨을 때 쓴다."""
+    async def reindex(
+        self, doc_id: PydanticObjectId, *, chunking_strategy: str | None = None
+    ) -> DocumentResponse:
+        """문서 하나를 다시 인덱싱한다.
+
+        전략을 지정하지 않으면 최초 적재에 쓴 전략을 그대로 재현한다 — 파라미터만 바꿔
+        다시 자르려는 경우가 대부분이고, 그때 전략까지 바뀌면 결과를 예측할 수 없다.
+        전략 자체를 바꾸려면 `chunking_strategy`를 명시한다.
+        """
         document = await self._repository.get(doc_id)
         if document is None:
             raise DocumentNotFound
-        return DocumentResponse.from_domain(await self._index(document))
+        return DocumentResponse.from_domain(
+            await self._index(document, strategy_override=chunking_strategy)
+        )
 
     # ─── 검색 (공개 조회 / 챗봇) ───────────────────────────────
 
@@ -180,15 +192,26 @@ class KnowledgeService:
 
     # ─── 내부 ──────────────────────────────────────────────────
 
-    async def _index(self, document: SourceDocument) -> SourceDocument:
+    async def _index(
+        self, document: SourceDocument, *, strategy_override: str | None = None
+    ) -> SourceDocument:
         if document.id is None:
             raise DocumentNotFound
 
+        # 전략 우선순위: 요청 override → 설정 → 포맷 기본값.
+        # 요청이 이기는 이유는 문서 성격을 아는 쪽이 호출자이기 때문이다(표를 덤프한
+        # HTML이라면 heading이 아니라 fixed_size가 맞고, 그건 가져온 쪽만 안다).
+        chunker = resolve_chunker(
+            self._settings.chunkers,
+            content_type=document.content_type,
+            override=strategy_override
+            or document.chunking_strategy
+            or self._settings.chunking_strategy,
+        )
         doc_id = str(document.id)
-        texts = split_into_chunks(
-            document.raw_text,
-            target_tokens=self._settings.chunk_target_tokens,
-            overlap_tokens=self._settings.chunk_overlap_tokens,
+        texts = chunker.chunk(
+            ChunkingInput(text=document.raw_text, outline=document.outline),
+            self._settings.chunking_options(),
         )
         chunks = [
             Chunk(doc_id=doc_id, chunk_index=index, text=text) for index, text in enumerate(texts)
@@ -203,7 +226,13 @@ class KnowledgeService:
         )
         return await self._repository.save(
             document.model_copy(
-                update={"chunk_count": len(chunks), "indexed_at": datetime.now(UTC)}
+                update={
+                    "chunk_count": len(chunks),
+                    "indexed_at": datetime.now(UTC),
+                    # 어떤 전략으로 잘렸는지 남긴다. 전략을 바꿨을 때 재인덱싱 대상을
+                    # 고르는 근거가 되고, 재인덱싱이 같은 방식을 재현하게 한다.
+                    "chunking_strategy": chunker.name,
+                }
             )
         )
 

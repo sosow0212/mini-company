@@ -278,3 +278,98 @@ def test_metadata_keys_are_safe_for_mongo() -> None:
 
 def test_clean_text_collapses_spaces_but_keeps_paragraphs() -> None:
     assert clean_text("a   b\r\n\r\n\r\n\r\nc") == "a b\n\nc"
+
+
+# ─── 절 구조(outline) — 목차 청킹의 전제조건 ──────────────────
+
+_STRUCTURED_HTML = """<html><body>
+<p>도입부 문단이다.</p>
+<h1>1장 개요</h1><p>개요 본문이다.</p>
+<h2>1.1 배경</h2><p>배경 설명이다.</p>
+<h2>1.2 목표</h2><p>목표 설명이다.</p>
+<h1>2장 방법</h1><p>방법 본문이다.</p>
+</body></html>"""
+
+
+def test_html_extracts_section_outline() -> None:
+    """파싱 단계에서 `<h2>`를 지워버리면 텍스트만 보고 절 경계를 되찾을 수 없다."""
+    outline = _parse(ContentType.HTML, text=_STRUCTURED_HTML).outline
+
+    assert [(item.level, item.heading) for item in outline] == [
+        (0, ""),
+        (1, "1장 개요"),
+        (2, "1.1 배경"),
+        (2, "1.2 목표"),
+        (1, "2장 방법"),
+    ]
+
+
+def test_html_outline_records_ancestor_path() -> None:
+    """청크 앞에 붙는 경로다. 조각만 봐도 어느 절인지 알 수 있게 한다."""
+    outline = _parse(ContentType.HTML, text=_STRUCTURED_HTML).outline
+
+    assert outline[2].path == ("1장 개요",)
+    assert outline[4].path == ()
+
+
+def test_html_outline_excludes_heading_text_from_body() -> None:
+    """청커가 접두어로 제목을 붙이므로, 본문에도 두면 청크에 제목이 두 번 나온다."""
+    outline = _parse(ContentType.HTML, text=_STRUCTURED_HTML).outline
+
+    assert outline[1].text == "개요 본문이다."
+
+
+def test_html_outline_keeps_preamble_as_level_zero() -> None:
+    """첫 제목보다 앞선 도입부를 버리면 문서 앞머리가 인덱싱에서 사라진다."""
+    outline = _parse(ContentType.HTML, text=_STRUCTURED_HTML).outline
+
+    assert outline[0].level == 0
+    assert outline[0].text == "도입부 문단이다."
+
+
+def test_html_outline_is_empty_without_headings() -> None:
+    """구조를 알 수 없으면 비워 둔다. 목차 청커가 문단 전략으로 폴백한다."""
+    outline = _parse(
+        ContentType.HTML, text="<html><body><p>제목 없는 본문.</p></body></html>"
+    ).outline
+
+    assert outline == ()
+
+
+def test_markdown_extracts_section_outline() -> None:
+    markdown = "도입부다.\n\n# 1장\n개요 본문.\n\n## 1.1 배경\n배경 설명.\n\n# 2장\n방법 본문."
+
+    outline = _parse(ContentType.MARKDOWN, text=markdown).outline
+
+    assert [(item.level, item.heading, item.path) for item in outline] == [
+        (0, "", ()),
+        (1, "1장", ()),
+        (2, "1.1 배경", ("1장",)),
+        (1, "2장", ()),
+    ]
+
+
+def test_markdown_ignores_hash_inside_code_fence() -> None:
+    """셸 주석은 제목이 아니다. 이걸 빼먹으면 스크립트 문서가 주석마다 쪼개진다."""
+    markdown = "# 진짜 제목\n본문.\n\n```sh\n# 이건 주석이다\necho hi\n```\n\n## 다음 절\n계속."
+
+    outline = _parse(ContentType.MARKDOWN, text=markdown).outline
+
+    assert [item.heading for item in outline] == ["진짜 제목", "다음 절"]
+
+
+def test_markdown_outline_strips_markup_from_section_body() -> None:
+    outline = _parse(
+        ContentType.MARKDOWN, text="# 제목\n**강조**와 [링크](https://x.test)다."
+    ).outline
+
+    assert "**" not in outline[0].text
+    assert "https://x.test" not in outline[0].text
+
+
+def test_plain_text_and_pdf_have_no_outline() -> None:
+    """구조를 알 수 없는 포맷이다. 청커가 폴백할 근거가 된다."""
+    assert _parse(ContentType.PLAIN_TEXT, text="줄글 본문.").outline == ()
+    assert (
+        _parse(ContentType.PDF, data=_minimal_pdf(title="t", author="a", body="body")).outline == ()
+    )

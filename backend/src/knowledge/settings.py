@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pymilvus import AsyncMilvusClient
 
 from src.config import Settings
+from src.knowledge.chunking.base import ChunkingOptions, ChunkingStrategy
+from src.knowledge.chunking.registry import build_chunker_registry, missing_default_strategies
 from src.knowledge.constants import ContentType
 from src.knowledge.embeddings.base import EmbeddingProvider
 from src.knowledge.embeddings.hashing import HashingEmbeddingProvider
@@ -24,10 +26,19 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class KnowledgeSettings:
     parsers: dict[ContentType, DocumentParser]
+    chunkers: dict[str, ChunkingStrategy]
     top_k: int
     score_threshold: float
     chunk_target_tokens: int
     chunk_overlap_tokens: int
+    # 설정으로 포맷별 기본값을 덮는다. None이면 registry의 포맷 기본값을 쓴다.
+    chunking_strategy: str | None = None
+
+    def chunking_options(self) -> ChunkingOptions:
+        return ChunkingOptions.from_tokens(
+            target_tokens=self.chunk_target_tokens,
+            overlap_tokens=self.chunk_overlap_tokens,
+        )
 
 
 @dataclass(frozen=True)
@@ -69,10 +80,22 @@ def build_knowledge_runtime(settings: Settings) -> KnowledgeRuntime:
         # enum에 포맷을 추가했는데 파서 등록을 잊은 상태. 런타임 첫 적재에서 발견되면 늦다.
         raise RuntimeError(f"파서가 등록되지 않은 ContentType: {missing}")
 
+    chunkers = build_chunker_registry()
+    chunking_problems = missing_default_strategies(chunkers)
+    if chunking_problems:
+        raise RuntimeError(f"청킹 전략 설정이 올바르지 않다: {chunking_problems}")
+    if settings.chunking_strategy is not None and settings.chunking_strategy not in chunkers:
+        raise RuntimeError(
+            f"CHUNKING_STRATEGY='{settings.chunking_strategy}'가 등록되지 않았다. "
+            f"사용 가능: {sorted(chunkers)}"
+        )
+
     client = AsyncMilvusClient(uri=settings.milvus_uri)
     return KnowledgeRuntime(
         settings=KnowledgeSettings(
             parsers=parsers,
+            chunkers=chunkers,
+            chunking_strategy=settings.chunking_strategy,
             top_k=settings.rag_top_k,
             score_threshold=settings.rag_score_threshold,
             chunk_target_tokens=settings.chunk_target_tokens,

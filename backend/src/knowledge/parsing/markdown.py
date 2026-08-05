@@ -7,6 +7,7 @@ YAML front matter가 있으면 그것도 메타로 읽는다.
 
 import re
 
+from src.knowledge.chunking.base import Section
 from src.knowledge.constants import ContentType
 from src.knowledge.domain import DocumentMetadata
 from src.knowledge.exceptions import DocumentParseFailed
@@ -19,9 +20,11 @@ from src.knowledge.parsing.base import (
     parse_datetime,
     split_keywords,
 )
+from src.knowledge.parsing.outline import RawHeading, build_outline
 
 _FRONT_MATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 _H1 = re.compile(r"^#\s+(.+)$", re.MULTILINE)
+_HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*#*$")
 _MARKUP = re.compile(r"^#{1,6}\s+|^\s*[-*+]\s+|^>\s?|`{1,3}|\*{1,2}|_{1,2}", re.MULTILINE)
 _LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 
@@ -41,6 +44,9 @@ class MarkdownParser:
 
         return ParsedDocument(
             text=clean_text(stripped),
+            # 마크업을 지운 텍스트가 아니라 원본 body에서 구조를 읽는다 — `#`을 지운 뒤에는
+            # 절 경계를 되찾을 수 없다.
+            outline=_build_outline(body),
             metadata=DocumentMetadata(
                 title=first_present(
                     front_matter.get("title"), heading.group(1) if heading else None
@@ -69,6 +75,41 @@ class MarkdownParser:
                 },
             ),
         )
+
+
+def _build_outline(body: str) -> tuple[Section, ...]:
+    """`#` 개수를 레벨로 읽어 절 구조를 만든다.
+
+    코드 블록 안의 `#`은 주석이지 제목이 아니다. 펜스(```)를 세어 그 안을 건너뛴다 —
+    이걸 빼먹으면 셸 스크립트가 담긴 문서가 주석마다 쪼개진다.
+    """
+    preamble: list[str] = []
+    # (레벨, 제목, 본문 줄들). 본문을 모으는 동안 리스트로 두고 마지막에 RawHeading으로 만든다.
+    collected: list[tuple[int, str, list[str]]] = []
+    in_fence = False
+
+    for line in body.splitlines():
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+
+        match = None if in_fence else _HEADING.match(line)
+        if match is None:
+            (collected[-1][2] if collected else preamble).append(line)
+            continue
+        collected.append((len(match.group(1)), match.group(2).strip(), []))
+
+    return build_outline(
+        [
+            RawHeading(level=level, heading=heading, text=_clean_block(lines))
+            for level, heading, lines in collected
+        ],
+        preamble=_clean_block(preamble),
+    )
+
+
+def _clean_block(lines: list[str]) -> str:
+    joined = "\n".join(lines)
+    return clean_text(_MARKUP.sub("", _LINK.sub(r"\1", joined)))
 
 
 def _split_front_matter(text: str) -> tuple[dict[str, str], str]:

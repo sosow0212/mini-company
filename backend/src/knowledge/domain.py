@@ -6,6 +6,7 @@ from datetime import datetime
 from beanie import PydanticObjectId
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.knowledge.chunking.base import Section
 from src.knowledge.constants import ContentType, SourceType
 
 
@@ -45,6 +46,13 @@ class SourceDocument(BaseModel):
     source_type: SourceType
     content_type: ContentType
     raw_text: str
+    # 파싱 시점의 절 구조. raw_text와 내용이 겹치지만 그래도 보관한다 —
+    # 재인덱싱 때 이게 없으면 목차 전략이 문단으로 폴백해서, 같은 문서가 최초 적재와
+    # 다르게 잘린다. 원본 바이트를 보관하지 않으므로 다시 파싱할 수도 없다.
+    outline: tuple[Section, ...] = ()
+    # 실제로 사용한 전략 이름. 기록하지 않으면 전략을 바꿨을 때 어떤 문서가 옛 방식으로
+    # 남아 있는지 알 수 없고, 재인덱싱 대상을 고를 근거가 사라진다.
+    chunking_strategy: str = ""
     metadata: DocumentMetadata = DocumentMetadata()
     collected_by: PydanticObjectId
     task_id: PydanticObjectId | None = None

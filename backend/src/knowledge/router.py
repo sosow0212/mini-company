@@ -19,6 +19,7 @@ from src.knowledge.schemas import (
     DocumentResponse,
     IngestDocumentRequest,
     IngestResult,
+    ReindexRequest,
     SearchResponse,
 )
 
@@ -73,13 +74,15 @@ async def ingest_document(
         title_hint=request.title,
         task_id=request.task_id,
         metadata_hints=request.metadata,
+        chunking_strategy=request.chunking_strategy,
     )
 
 
 @internal_router.post("/documents/{doc_id}/reindex")
 async def reindex_document(
     doc_id: PydanticObjectId,
+    request: ReindexRequest,
     service: KnowledgeServiceDep,
 ) -> DocumentResponse:
-    """청킹 파라미터나 임베딩 모델을 바꿨을 때 문서 하나를 다시 인덱싱한다."""
-    return await service.reindex(doc_id)
+    """청킹 파라미터·전략·임베딩 모델을 바꿨을 때 문서 하나를 다시 인덱싱한다."""
+    return await service.reindex(doc_id, chunking_strategy=request.chunking_strategy)

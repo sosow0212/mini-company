@@ -213,6 +213,56 @@ service·router·모델은 수정하지 않는다. 등록을 잊으면 부팅이
 재인덱싱은 `doc_id` 기준 **delete → insert**다. upsert면 문서가 짧아졌을 때 남은 옛 청크가
 검색에 계속 잡힌다.
 
+### 청킹 전략 — 문서마다 "의미 있는 조각"의 기준이 다르다
+
+전략을 하나로 통일하면 어느 쪽이든 나빠진다. 목차가 있는 기술 문서는 절 단위로 잘라야
+한 청크가 하나의 주제를 담고, 표·로그처럼 구조가 없는 텍스트는 고정 크기가 낫다.
+
+```
+knowledge/chunking/
+├── base.py        ChunkingStrategy Protocol + Section + 공통 분할 헬퍼
+├── paragraph.py / fixed_size.py / heading.py
+└── registry.py    이름 → 전략, 포맷별 기본값
+```
+
+| 전략 | 기준 | 쓰는 곳 |
+|---|---|---|
+| `paragraph` | 문단 → 문장 → 문자 | 구조를 모르는 문서. 글쓴이가 표시한 경계를 지킨다 |
+| `heading` | 제목 태그(h1~h6, `#`) | 목차가 있는 문서. 청크마다 제목 경로를 붙인다 |
+| `fixed_size` | 고정 문자 수 | 표·로그·줄바꿈 없는 스크래핑. 크기가 균일해 비용이 예측 가능 |
+
+**새 전략 추가는 전략 파일 하나 + registry 한 줄이다.** service·router·모델은 수정하지 않는다.
+
+기본값은 **포맷**이 정한다 — HTML·MARKDOWN은 `heading`, PDF·줄글은 `paragraph`.
+`ContentType`을 추가하고 기본 전략을 빠뜨리면 부팅이 거부된다(`missing_default_strategies`).
+
+목차 청킹의 핵심은 **제목 경로 접두어**다. 조각만 떼어 임베딩하면 "1.1절의 내용"이라는
+정보가 사라지는데, 경로가 있으면 청크 자체가 문맥을 갖는다:
+
+```
+[1장 시장 개요 > 1.1 수요 배경]
+클라우드 사업자들이 서버 증설을 재개했다. 전년 대비 발주가 늘었다.
+```
+
+이게 가능하려면 **파서가 구조를 보존해야 한다.** `ParsedDocument.outline`이 그 통로이고,
+HTML은 `h1~h6`, Markdown은 `#` 레벨(코드 펜스 안은 제외)에서 절을 뽑는다. 구조를 알 수
+없는 포맷은 비워 두고, `heading` 전략이 스스로 `paragraph`로 폴백한다.
+
+`SourceDocument`는 `outline`과 `chunkingStrategy`를 함께 저장한다. 원본 바이트를 보관하지
+않으므로 재인덱싱 때 다시 파싱할 수 없고, 이게 없으면 같은 문서가 최초 적재와 다르게 잘린다.
+
+```bash
+# 전략을 지정해 적재 (문서 성격을 아는 호출자만)
+POST /internal/v1/knowledge/documents   {"chunkingStrategy": "fixed_size", ...}
+
+# 전략을 바꿔 재인덱싱. 비우면 최초 적재에 쓴 전략을 그대로 재현한다
+POST /internal/v1/knowledge/documents/{id}/reindex   {"chunkingStrategy": "heading"}
+```
+
+우선순위는 **요청 → `CHUNKING_STRATEGY` 설정 → 포맷 기본값**이다. 요청이 이기는 이유는
+문서 성격을 아는 쪽이 호출자이기 때문이다(표를 덤프한 HTML이면 `heading`이 아니라
+`fixed_size`가 맞고, 그건 가져온 쪽만 안다).
+
 ### 임베딩 프로바이더
 
 | 값 | 용도 |

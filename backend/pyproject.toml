@@ -45,4 +45,4 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
 [tool.ruff.lint.per-file-ignores]
 # 문서 파서·청커는 전각 문장부호(？！。)를 의도적으로 다룬다. 한국어·일본어 문서에서
 # 실제로 쓰이고, 빼면 그 문서의 문장 경계를 찾지 못한다.
-"src/knowledge/chunking.py" = ["RUF001"]
+"src/knowledge/chunking/base.py" = ["RUF001"]

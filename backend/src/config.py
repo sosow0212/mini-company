@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     rag_score_threshold: float = 0.35
     chunk_target_tokens: int = 500
     chunk_overlap_tokens: int = 80
+    # 비우면 포맷별 기본 전략을 쓴다(HTML·MARKDOWN → heading, PDF·줄글 → paragraph).
+    # 등록되지 않은 이름이면 부팅을 거부한다.
+    chunking_strategy: str | None = None
 
     # ─── 챗봇 (Phase 8) ───────────────────────────────────────
     # 챗봇은 직원이 아니라서 프로파일을 이름으로 직접 고른다.

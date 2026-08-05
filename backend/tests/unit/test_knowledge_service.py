@@ -8,6 +8,7 @@ reindex_replaces_chunks_without_duplicating_when_document_is_reingested
 import pytest
 from beanie import PydanticObjectId
 
+from src.knowledge.chunking.registry import build_chunker_registry
 from src.knowledge.constants import ContentType, SourceType
 from src.knowledge.embeddings.hashing import HashingEmbeddingProvider
 from src.knowledge.exceptions import DocumentNotFound, EmptyDocument, UnsupportedContentType
@@ -30,6 +31,7 @@ class Harness:
             HashingEmbeddingProvider(dimension=_DIMENSION),
             KnowledgeSettings(
                 parsers=build_parser_registry(),
+                chunkers=build_chunker_registry(),
                 top_k=5,
                 score_threshold=threshold,
                 chunk_target_tokens=target_tokens,
@@ -276,3 +278,99 @@ async def test_list_recent_returns_documents_newest_first() -> None:
 
     assert len(documents) == 2
     assert documents[0].collected_at >= documents[1].collected_at
+
+
+# ─── 청킹 전략 선택 ────────────────────────────────────────────
+
+
+async def test_html_uses_heading_strategy_by_default() -> None:
+    """HTML은 제목 태그가 있으니 절 단위로 잘라야 한 청크가 하나의 주제를 담는다."""
+    harness = Harness()
+    html = (
+        "<html><body><h1>1장</h1><p>개요 본문이다.</p>"
+        "<h2>1.1 배경</h2><p>배경 설명이다.</p></body></html>"
+    )
+
+    result = await harness.ingest_text(html, content_type=ContentType.HTML)
+
+    assert result.document.chunking_strategy == "heading"
+    assert result.document.section_count == 2
+
+
+async def test_plain_text_uses_paragraph_strategy_by_default() -> None:
+    result = await Harness().ingest_text("줄글 본문이다.")
+
+    assert result.document.chunking_strategy == "paragraph"
+    assert result.document.section_count == 0
+
+
+async def test_request_can_override_the_strategy() -> None:
+    """표를 덤프한 HTML이라면 heading이 아니라 fixed_size가 맞고, 그건 호출자만 안다."""
+    harness = Harness()
+
+    result = await harness.ingest_text(
+        "<html><body><h1>제목</h1><p>본문.</p></body></html>",
+        content_type=ContentType.HTML,
+        chunking_strategy="fixed_size",
+    )
+
+    assert result.document.chunking_strategy == "fixed_size"
+
+
+async def test_unknown_strategy_is_rejected_at_ingest() -> None:
+    from src.knowledge.exceptions import UnsupportedChunkingStrategy
+
+    with pytest.raises(UnsupportedChunkingStrategy):
+        await Harness().ingest_text("본문.", chunking_strategy="semantic")
+
+
+async def test_heading_chunks_carry_the_section_path() -> None:
+    """조각만 떼어 임베딩하면 절 정보가 사라진다. 경로가 있으면 청크가 문맥을 갖는다."""
+    harness = Harness()
+    html = (
+        "<html><body><h1>1장 개요</h1><p>개요 본문이다.</p>"
+        "<h2>1.1 배경</h2><p>배경 설명이다.</p></body></html>"
+    )
+
+    ingested = await harness.ingest_text(html, content_type=ContentType.HTML)
+    found = await harness.service.search("배경 설명")
+
+    assert ingested.document.chunk_count >= 2
+    assert any("1장 개요 > 1.1 배경" in item.text for item in found.items)
+
+
+async def test_reindex_reproduces_the_original_strategy() -> None:
+    """전략까지 바뀌면 재인덱싱 결과를 예측할 수 없다. 구조를 저장해 그걸 막는다."""
+    harness = Harness()
+    html = "<html><body><h1>1장</h1><p>본문 하나.</p><h2>1.1</h2><p>본문 둘.</p></body></html>"
+    ingested = await harness.ingest_text(html, content_type=ContentType.HTML)
+
+    reindexed = await harness.service.reindex(PydanticObjectId(ingested.document.id))
+
+    assert reindexed.chunking_strategy == "heading"
+    assert reindexed.chunk_count == ingested.document.chunk_count
+
+
+async def test_reindex_can_switch_the_strategy_explicitly() -> None:
+    harness = Harness()
+    html = "<html><body><h1>1장</h1><p>본문 하나.</p><h2>1.1</h2><p>본문 둘.</p></body></html>"
+    ingested = await harness.ingest_text(html, content_type=ContentType.HTML)
+
+    reindexed = await harness.service.reindex(
+        PydanticObjectId(ingested.document.id), chunking_strategy="fixed_size"
+    )
+
+    assert reindexed.chunking_strategy == "fixed_size"
+    assert harness.vectors.chunk_count(reindexed.id) == reindexed.chunk_count
+
+
+async def test_outline_is_persisted_for_later_reindexing() -> None:
+    """원본 바이트를 보관하지 않으므로 다시 파싱할 수 없다 — 구조를 저장해야 한다."""
+    harness = Harness()
+    html = "<html><body><h1>1장</h1><p>본문.</p></body></html>"
+    ingested = await harness.ingest_text(html, content_type=ContentType.HTML)
+
+    stored = await harness.repository.get(PydanticObjectId(ingested.document.id))
+
+    assert stored is not None
+    assert [section.heading for section in stored.outline] == ["1장"]

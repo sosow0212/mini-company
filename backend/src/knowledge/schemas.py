@@ -33,6 +33,9 @@ class IngestDocumentRequest(ApiModel):
     text: str | None = Field(default=None, max_length=_MAX_TEXT_LENGTH)
     base64_content: str | None = Field(default=None, max_length=_MAX_BASE64_LENGTH)
     metadata: dict[str, str] = Field(default_factory=dict)
+    # 비우면 포맷 기본 전략(HTML·MD는 목차, PDF·줄글은 문단)을 쓴다. 문서 성격을 아는
+    # 호출자만 지정한다 — 표를 덤프한 HTML이면 fixed_size가 맞다.
+    chunking_strategy: str | None = Field(default=None, max_length=40)
 
     @model_validator(mode="after")
     def _require_matching_payload(self) -> "IngestDocumentRequest":
@@ -87,6 +90,10 @@ class DocumentResponse(ApiModel):
     collected_at: datetime
     content_hash: str
     chunk_count: int
+    # 어떤 전략으로 잘렸는지. 전략을 바꿨을 때 재인덱싱 대상을 고르는 근거다.
+    chunking_strategy: str
+    # 절 개수. 0이면 구조를 알 수 없는 문서(줄글·PDF)라 목차 청킹이 폴백됐다는 뜻이다.
+    section_count: int
     indexed_at: datetime | None
     # 본문 전체는 내리지 않는다. 목록·상세 화면에 2MB 텍스트가 필요한 경우는 없다.
     text_length: int
@@ -107,6 +114,8 @@ class DocumentResponse(ApiModel):
             collected_at=document.collected_at,
             content_hash=document.content_hash,
             chunk_count=document.chunk_count,
+            chunking_strategy=document.chunking_strategy,
+            section_count=len(document.outline),
             indexed_at=document.indexed_at,
             text_length=len(document.raw_text),
         )
@@ -116,6 +125,12 @@ class IngestResult(ApiModel):
     document: DocumentResponse
     # 중복은 오류가 아니다. 워커가 같은 피드를 다시 긁는 것은 정상이므로 플래그로 알린다.
     skipped_duplicate: bool
+
+
+class ReindexRequest(ApiModel):
+    """전략을 비우면 최초 적재에 쓴 전략을 그대로 재현한다."""
+
+    chunking_strategy: str | None = Field(default=None, max_length=40)
 
 
 class SearchResultItem(ApiModel):

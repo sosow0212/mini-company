@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Protocol
 
+from src.knowledge.chunking.base import Section
 from src.knowledge.constants import ContentType
 from src.knowledge.domain import DocumentMetadata
 
@@ -39,6 +40,10 @@ class RawPayload:
 class ParsedDocument:
     text: str
     metadata: DocumentMetadata
+    # 제목 구조. 목차 청킹의 전제조건이다 — 파싱 단계에서 `<h2>`나 `## `를 지워버리면
+    # 텍스트만 보고 절 경계를 되찾을 방법이 없다.
+    # 구조를 알 수 없는 포맷(줄글·PDF)은 비워 둔다. 청커가 문단 전략으로 폴백한다.
+    outline: tuple[Section, ...] = ()
 
 
 class DocumentParser(Protocol):
