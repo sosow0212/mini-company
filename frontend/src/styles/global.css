@@ -1,8 +1,8 @@
 /*
  * 레이아웃과 컴포넌트.
  *
- * 3D 씬이 화면을 채우고 패널은 그 위에 유리처럼 떠 있다. 패널을 불투명 사이드바로
- * 밀어내지 않는 이유: 관제 화면에서 씬은 배경이 아니라 본문이다.
+ * 3D 씬이 화면을 채우고 패널은 그 위에 흰 카드로 떠 있다. 다크 시절의 발광선·글로우는
+ * 전부 걷어냈다 — 밝은 씬 위에서는 순수한 그림자와 1px 보더만이 계층을 만든다.
  */
 
 *,
@@ -40,52 +40,36 @@ body {
 /* ── 상단바 ── */
 .topbar {
   grid-area: top;
-  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--gap);
-  padding: var(--gap-tight) var(--gap-loose);
-  background: linear-gradient(to bottom, var(--surface-panel), transparent);
-}
-
-/* 발광 언더라인. 1px 선이지만 이게 상단바를 "장치"처럼 만든다. */
-.topbar::after {
-  content: '';
-  position: absolute;
-  inset-block-end: 0;
-  inset-inline: 0;
-  height: 1px;
-  background: linear-gradient(
-    to right,
-    transparent,
-    color-mix(in oklab, var(--accent) 55%, transparent) 18%,
-    color-mix(in oklab, var(--accent) 22%, transparent) 60%,
-    transparent
-  );
+  padding: 0.55rem var(--gap-loose);
+  background: var(--surface-raised);
+  border-block-end: 1px solid var(--line);
 }
 
 .brand {
   margin: 0;
   font-size: var(--text-body);
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .brand__dim {
   color: var(--text-faint);
+  font-weight: 500;
 }
 
 .brand__tag {
   margin-inline-start: var(--gap-tight);
-  padding: 0.1rem 0.4rem;
-  border: 1px solid color-mix(in oklab, var(--accent) 40%, transparent);
-  border-radius: 2px;
+  padding: 0.14rem 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent) 10%, white);
   color: var(--accent);
   font-size: var(--text-tag);
-  font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   vertical-align: 1px;
 }
 
@@ -94,16 +78,20 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
+  padding: 0.22rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-raised);
   font-family: var(--font-mono);
   font-size: var(--text-label);
-  letter-spacing: 0.1em;
+  letter-spacing: 0.06em;
   color: var(--text-dim);
 }
 
 .badge::before {
   content: '';
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--status-offline);
   transition: background var(--duration) var(--ease-out);
@@ -111,16 +99,15 @@ body {
 
 .badge[data-state='live'] {
   color: var(--status-working);
+  border-color: color-mix(in oklab, var(--status-working) 35%, var(--line));
 }
 
 .badge[data-state='live']::before {
   background: var(--status-working);
-  box-shadow: 0 0 8px 1px color-mix(in oklab, var(--status-working) 70%, transparent);
 }
 
 .badge[data-state='down']::before {
   background: var(--status-blocked);
-  box-shadow: 0 0 8px 1px color-mix(in oklab, var(--status-blocked) 60%, transparent);
 }
 
 /* ── 3D 스테이지 ── */
@@ -140,13 +127,13 @@ body {
   display: block;
 }
 
-/* 비네트. 씬 네 귀퉁이를 눌러 중앙으로 시선을 모은다. */
+/* 비네트. 씬 네 귀퉁이를 살짝 눌러 중앙으로 시선을 모은다. */
 .stage::after {
   content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(72% 62% at 50% 42%, transparent 55%, rgb(0 0 0 / 0.55));
+  background: radial-gradient(75% 65% at 50% 42%, transparent 60%, rgb(84 70 48 / 0.14));
 }
 
 /* CSS2DRenderer 레이어. 라벨만 포인터를 받는다(지금은 전부 none). */
@@ -164,9 +151,10 @@ body {
   z-index: 2;
   margin: 0;
   padding: var(--gap);
-  border: 1px solid var(--status-error);
-  border-radius: var(--radius);
-  background: color-mix(in oklab, var(--status-error) 16%, var(--surface-panel));
+  border: 1px solid color-mix(in oklab, var(--status-error) 45%, var(--line));
+  border-radius: var(--radius-small);
+  background: color-mix(in oklab, var(--status-error) 8%, white);
+  color: var(--status-error);
   font-family: var(--font-mono);
   font-size: var(--text-label);
 }
@@ -176,37 +164,38 @@ body {
   --tag: var(--status-idle);
   display: inline-flex;
   align-items: center;
-  gap: 0.28rem;
-  padding: 0.09rem 0.4rem 0.09rem 0.12rem;
-  border: 1px solid color-mix(in oklab, var(--tag) 48%, transparent);
+  gap: 0.3rem;
+  padding: 0.14rem 0.5rem 0.14rem 0.16rem;
+  border: 1px solid color-mix(in oklab, var(--tag) 45%, var(--line));
   border-radius: 999px;
-  background: color-mix(in oklab, var(--surface-void) 78%, transparent);
-  backdrop-filter: blur(6px);
-  box-shadow: 0 0 10px -2px color-mix(in oklab, var(--tag) 40%, transparent);
+  background: rgb(255 255 255 / 0.92);
+  box-shadow: var(--shadow-card);
   color: var(--text);
   font-size: var(--text-tag);
   line-height: 1.5;
   white-space: nowrap;
   transition:
     border-color var(--duration) var(--ease-out),
-    box-shadow var(--duration) var(--ease-out);
+    opacity var(--duration) var(--ease-out);
 }
 
 .nametag__role {
-  padding: 0 0.28rem;
+  padding: 0.02rem 0.3rem;
   border-radius: 999px;
-  background: var(--tag);
-  color: #05070c;
+  background: color-mix(in oklab, var(--tag) 16%, white);
+  color: color-mix(in oklab, var(--tag) 72%, black);
   font-family: var(--font-mono);
-  font-size: 0.5rem;
+  font-size: 0.52rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
+  transition:
+    background var(--duration) var(--ease-out),
+    color var(--duration) var(--ease-out);
 }
 
 .nametag__name {
-  padding-inline-end: 0.05rem;
-  font-weight: 500;
-  letter-spacing: 0.01em;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 .nametag[data-status='WORKING'] {
@@ -220,30 +209,44 @@ body {
 }
 .nametag[data-status='OFFLINE'] {
   --tag: var(--status-offline);
-  opacity: 0.55;
+  opacity: 0.65;
 }
 
 /* ── 말풍선 ── */
 .speech-bubble {
+  position: relative;
   max-width: 15rem;
-  padding: 0.32rem 0.6rem;
-  border: 1px solid color-mix(in oklab, var(--accent) 38%, transparent);
-  border-radius: var(--radius);
-  background: var(--surface-glass);
-  backdrop-filter: blur(8px);
-  box-shadow: 0 6px 18px -8px rgb(0 0 0 / 0.8);
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.96);
+  box-shadow: var(--shadow-card);
   color: var(--text);
   font-size: var(--text-label);
-  line-height: 1.4;
+  line-height: 1.45;
   text-align: center;
   white-space: normal;
   word-break: keep-all;
   /* 나타날 때만 움직인다. 애니메이션은 compositor 속성으로만. */
   opacity: 0;
-  transform: translateY(5px) scale(0.95);
+  transform: translateY(5px) scale(0.96);
   transition:
     opacity var(--duration) var(--ease-out),
     transform var(--duration) var(--ease-out);
+}
+
+/* 꼬리. 말하는 "사람"이 누구인지 시선을 되돌릴 필요가 없게 한다. */
+.speech-bubble::after {
+  content: '';
+  position: absolute;
+  inset-block-end: -5px;
+  inset-inline-start: calc(50% - 5px);
+  width: 9px;
+  height: 9px;
+  background: inherit;
+  border-inline-end: 1px solid var(--line);
+  border-block-end: 1px solid var(--line);
+  transform: rotate(45deg);
 }
 
 .speech-bubble.is-visible {
@@ -252,11 +255,11 @@ body {
 }
 
 .speech-bubble[data-level='WARN'] {
-  border-color: color-mix(in oklab, var(--level-warn) 65%, transparent);
+  border-color: color-mix(in oklab, var(--level-warn) 55%, var(--line));
 }
 
 .speech-bubble[data-level='ERROR'] {
-  border-color: color-mix(in oklab, var(--level-error) 70%, transparent);
+  border-color: color-mix(in oklab, var(--level-error) 55%, var(--line));
   color: var(--level-error);
 }
 
@@ -267,7 +270,7 @@ body {
   flex-direction: column;
   gap: var(--gap);
   padding: var(--gap) var(--gap) var(--gap-loose);
-  background: linear-gradient(to left, var(--surface-panel), color-mix(in oklab, var(--surface-panel) 72%, transparent));
+  background: var(--surface-panel);
   border-inline-start: 1px solid var(--line);
   overflow-y: auto;
 }
@@ -279,26 +282,15 @@ body {
 }
 
 .panel {
-  position: relative;
-  padding: var(--gap);
+  padding: var(--gap-loose) var(--gap);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--surface-glass);
-  backdrop-filter: blur(10px);
-}
-
-/* 패널 상단에 얇은 발광 캡. 카드가 "계기"처럼 읽히게 한다. */
-.panel::before {
-  content: '';
-  position: absolute;
-  inset-block-start: -1px;
-  inset-inline: 12%;
-  height: 1px;
-  background: linear-gradient(to right, transparent, var(--accent-dim), transparent);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-card);
 }
 
 .panel--detail {
-  border-color: color-mix(in oklab, var(--accent) 30%, var(--line));
+  border-color: color-mix(in oklab, var(--accent) 25%, var(--line));
 }
 
 .panel__head {
@@ -312,7 +304,7 @@ body {
   margin: 0;
   font-size: var(--text-label);
   font-weight: 600;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
@@ -327,7 +319,7 @@ body {
   font-family: var(--font-mono);
   font-size: var(--text-tag);
   letter-spacing: 0.08em;
-  color: var(--accent-dim);
+  color: var(--accent);
   text-transform: uppercase;
 }
 
@@ -364,27 +356,28 @@ body {
   font-family: var(--font-mono);
   font-size: var(--text-figure);
   font-variant-numeric: tabular-nums;
+  font-weight: 600;
   letter-spacing: -0.02em;
-  color: var(--status-working);
-  text-shadow: 0 0 22px color-mix(in oklab, var(--status-working) 32%, transparent);
+  color: var(--text);
 }
 
 .figure__value[data-negative='true'] {
   color: var(--status-error);
-  text-shadow: 0 0 22px color-mix(in oklab, var(--status-error) 30%, transparent);
 }
 
 .figure__sign {
-  opacity: 0.65;
+  color: var(--status-working);
+  margin-inline-end: 0.1rem;
+}
+
+.figure__value[data-negative='true'] .figure__sign {
+  color: inherit;
 }
 
 .ledger-rows {
   margin: 0;
   display: grid;
-  gap: 1px;
-  /* 규칙선을 배경으로 그린다. 행마다 border를 주면 겹침이 두꺼워진다. */
-  background: var(--line);
-  border-block: 1px solid var(--line);
+  border-block-start: 1px solid var(--line);
 }
 
 .ledger-row {
@@ -392,13 +385,13 @@ body {
   align-items: baseline;
   justify-content: space-between;
   gap: var(--gap);
-  padding: 0.4rem 0.1rem;
-  background: color-mix(in oklab, var(--surface-void) 82%, transparent);
+  padding: 0.45rem 0.1rem;
+  border-block-end: 1px solid var(--line);
   transition: background var(--duration-fast) var(--ease-out);
 }
 
 .ledger-row:hover {
-  background: var(--surface-raised);
+  background: var(--surface-panel);
 }
 
 .ledger-row dt {
@@ -416,29 +409,38 @@ body {
 
 /* ── 직원 상세 ── */
 .status-chip {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   margin: var(--gap) 0 0;
-  padding: 0.15rem 0.5rem;
-  border: 1px solid currentColor;
+  padding: 0.2rem 0.6rem;
   border-radius: 999px;
+  background: color-mix(in oklab, var(--chip, var(--status-idle)) 12%, white);
   font-family: var(--font-mono);
   font-size: var(--text-tag);
-  letter-spacing: 0.1em;
-  color: var(--status-idle);
-  box-shadow: 0 0 12px -4px currentColor;
+  letter-spacing: 0.08em;
+  color: color-mix(in oklab, var(--chip, var(--status-idle)) 70%, black);
+}
+
+.status-chip::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--chip, var(--status-idle));
 }
 
 .status-chip[data-status='WORKING'] {
-  color: var(--status-working);
+  --chip: var(--status-working);
 }
 .status-chip[data-status='BLOCKED'] {
-  color: var(--status-blocked);
+  --chip: var(--status-blocked);
 }
 .status-chip[data-status='ERROR'] {
-  color: var(--status-error);
+  --chip: var(--status-error);
 }
 .status-chip[data-status='OFFLINE'] {
-  color: var(--status-offline);
+  --chip: var(--status-offline);
 }
 
 .activity-log {
@@ -475,7 +477,7 @@ body {
 .icon-button {
   padding: 0.15rem 0.35rem;
   border: 1px solid transparent;
-  border-radius: 2px;
+  border-radius: var(--radius-small);
   background: none;
   color: var(--text-faint);
   cursor: pointer;
@@ -488,8 +490,8 @@ body {
 
 .icon-button:hover {
   color: var(--text);
-  border-color: var(--line-strong);
-  background: var(--surface-raised);
+  border-color: var(--line);
+  background: var(--surface-panel);
 }
 
 .icon-button:focus-visible {

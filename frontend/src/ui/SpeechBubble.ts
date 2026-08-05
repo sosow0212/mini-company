@@ -8,7 +8,7 @@
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import type { ActivityLevel } from '../api/types';
 
-const BUBBLE_HEIGHT_Y = 1.42;
+const BUBBLE_HEIGHT_Y = 2.08;
 /** 이 시간이 지난 활동은 말풍선에서 감춘다. 오래된 말풍선이 남아 있으면 지금 상태로 오독된다. */
 const VISIBLE_MS = 12_000;
 

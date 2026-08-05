@@ -1,102 +1,143 @@
 /**
- * 직원 1명 = 캐릭터 1개.
+ * 직원 1명 = 로봇 캐릭터 1개.
  *
- * 여전히 GLTF를 쓰지 않는다(§12). 대신 프리미티브를 홀로그램처럼 다룬다:
- * 반투명 캡슐 + 발광 코어 + 발밑 상태 링. 형태를 정교하게 만드는 대신 **빛으로** 존재감을
- * 낸다 — 모델링에 시간을 쓰기 시작하면 프로젝트가 거기서 멈춘다.
+ * 여전히 GLTF를 쓰지 않는다(§12). 프리미티브 조합이지만 "홀로그램"이 아니라 **책상에
+ * 앉아 일하는 로봇**으로 그린다: 몸통은 직무색, 얼굴은 카메라을 향하고, 키보드 위로
+ * 팔을 뻗는다. 일하는 중이면 타이핑하듯 팔이 움직인다 — 움직임 자체가 상태 신호다.
  *
- * 상태를 가장 강하게 말하는 건 **발밑 링**이다. 몸 색만으로는 멀리서 구분이 어렵고,
- * 링은 바닥에 붙어 있어 아바타가 겹쳐도 보인다. bloom이 이 링을 잡아 번지게 한다.
+ * 상태 색은 **안테나 끝의 전구**가 든다. 몸통을 상태색으로 칠하면 직원이 상태를
+ * 바꿀 때마다 다른 캐릭터처럼 보인다. 정체성(직무색 몸통)은 고정하고 상태(전구)만
+ * 바뀌어야 "누가" "어떤 상태인지"를 동시에 읽을 수 있다.
  */
 
 import {
   CapsuleGeometry,
+  CylinderGeometry,
   Group,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
-  RingGeometry,
   SphereGeometry,
   type Object3D,
 } from 'three';
 import type { Employee, EmployeeStatus } from '../api/types';
-import { statusColor, statusOpacity } from './palette';
-import { DESK_SURFACE_Y } from './OfficeLayout';
+import { roleColor, statusColor, statusOpacity } from './palette';
+import { SEAT_OFFSET_Z } from './OfficeLayout';
 
-const BODY_HEIGHT = 0.46;
-const BODY_RADIUS = 0.17;
-const HEAD_RADIUS = 0.14;
-const RING_INNER = 0.26;
-const RING_OUTER = 0.34;
-
-/** 책상 뒤에 앉은 높이. 상체만 책상 위로 나온다. */
-const SEAT_Y = DESK_SURFACE_Y - 0.2;
-const CHAIR_OFFSET_Z = 0.66;
+const TORSO_RADIUS = 0.16;
+const TORSO_LENGTH = 0.26;
+const TORSO_Y = 0.78;
+const HEAD_RADIUS = 0.17;
+const HEAD_Y = 1.18;
+const EYE_RADIUS = 0.03;
+const EYE_Y = 1.2;
+const EYE_Z = 0.16;
+const EYE_SPACING = 0.062;
+const ANTENNA_TIP_Y = 1.45;
+const ARM_RADIUS = 0.045;
+const ARM_LENGTH = 0.16;
+const ARM_Y = 0.78;
+const ARM_Z = 0.08;
+const ARM_REACH_TILT = -1.0;
 
 const COLOR_LERP_PER_SECOND = 6;
-const BOB_AMPLITUDE = 0.02;
-const BOB_SPEED = 2.2;
-const RING_SPIN_SPEED = 0.9;
-/** 일하는 중일 때 코어가 숨쉬는 폭. 정지된 아바타 사이에서 이게 시선을 끈다. */
-const PULSE_RANGE = 0.5;
+const TYPING_SPEED = 10;
+const TYPING_AMPLITUDE = 0.1;
+const HEAD_SWAY_SPEED = 1.4;
+const HEAD_SWAY_AMPLITUDE = 0.05;
+/** 눈 깜빡임 주기(초)와 깜빡이는 길이. 자리마다 위상이 달라 동시에 감지 않는다. */
+const BLINK_CYCLE = 3.4;
+const BLINK_LENGTH = 0.12;
+/* 안테나 팁의 크기 맥동 폭. 색이 아니라 움직임으로 "일하는 중"을 알린다. */
+const TIP_PULSE_SCALE = 0.22;
 
 export class EmployeeAvatar {
   readonly object: Group;
-  private readonly bodyMaterial: MeshStandardMaterial;
-  private readonly coreMaterial: MeshStandardMaterial;
-  private readonly ringMaterial: MeshStandardMaterial;
-  private readonly ring: Mesh;
+  private readonly fadeMaterials: readonly (MeshStandardMaterial | MeshBasicMaterial)[];
+  private readonly tipMaterial: MeshBasicMaterial;
+  private readonly leftArm: Mesh;
+  private readonly rightArm: Mesh;
+  private readonly head: Mesh;
+  private readonly eyes: readonly Mesh[];
+  private readonly tip: Mesh;
   private status: EmployeeStatus;
-  private readonly baseY: number;
+  /** 자리 x좌표로 만든 위상. 직원마다 타이밍이 어긋나야 군집 로봇처럼 보이지 않는다. */
+  private readonly phase: number;
 
   constructor(employee: Employee) {
     this.status = employee.status;
+    this.phase = employee.desk.x * 1.7;
     this.object = new Group();
-    this.object.position.set(employee.desk.x, SEAT_Y, employee.desk.z + CHAIR_OFFSET_Z);
-    this.baseY = SEAT_Y;
+    this.object.position.set(employee.desk.x, 0, employee.desk.z + SEAT_OFFSET_Z);
     // Raycaster가 맞춘 메시에서 직원을 되찾을 수 있게 한다.
     this.object.userData.employeeId = employee.id;
 
-    const color = statusColor(employee.status);
-    const opacity = statusOpacity(employee.status);
-
-    // 몸통: 반투명 유리. 뒤가 살짝 보여야 홀로그램처럼 읽힌다.
-    this.bodyMaterial = new MeshStandardMaterial({
-      color: 0x1b2233,
-      emissive: color.clone(),
-      emissiveIntensity: 0.22,
-      roughness: 0.28,
-      metalness: 0.5,
+    const identity = roleColor(employee.role);
+    const bodyMaterial = new MeshStandardMaterial({
+      color: identity,
+      roughness: 0.55,
       transparent: true,
-      opacity: 0.62 * opacity,
     });
-    const body = new Mesh(new CapsuleGeometry(BODY_RADIUS, BODY_HEIGHT, 6, 18), this.bodyMaterial);
-    body.position.y = BODY_HEIGHT / 2 + BODY_RADIUS;
-    body.castShadow = true;
-
-    // 코어: 몸 안에서 빛나는 구. 상태색을 그대로 뿜는다.
-    this.coreMaterial = new MeshStandardMaterial({
-      color: 0x000000,
-      emissive: color.clone(),
-      emissiveIntensity: 1.5,
+    const headMaterial = new MeshStandardMaterial({
+      color: 0xfbf2e4,
+      roughness: 0.5,
       transparent: true,
-      opacity,
     });
-    const core = new Mesh(new SphereGeometry(HEAD_RADIUS, 20, 16), this.coreMaterial);
-    core.position.y = BODY_HEIGHT + BODY_RADIUS * 1.7;
-
-    // 발밑 링: 상태의 주 신호. 바닥에 눕혀 아바타가 겹쳐도 보이게 한다.
-    this.ringMaterial = new MeshStandardMaterial({
-      color: 0x000000,
-      emissive: color.clone(),
-      emissiveIntensity: 2.1,
+    const eyeMaterial = new MeshStandardMaterial({
+      color: 0x2e2b26,
+      roughness: 0.4,
       transparent: true,
-      opacity: 0.9 * opacity,
     });
-    this.ring = new Mesh(new RingGeometry(RING_INNER, RING_OUTER, 40), this.ringMaterial);
-    this.ring.rotation.x = -Math.PI / 2;
-    this.ring.position.y = 0.012;
+    const antennaMaterial = new MeshStandardMaterial({
+      color: 0x8b8578,
+      roughness: 0.5,
+      transparent: true,
+    });
+    // 상태등 재질은 unlit이다 — 이유는 OfficeLayout의 Busylight 주석 참조.
+    this.tipMaterial = new MeshBasicMaterial({
+      color: statusColor(employee.status),
+      transparent: true,
+    });
+    this.fadeMaterials = [bodyMaterial, headMaterial, eyeMaterial, antennaMaterial, this.tipMaterial];
 
-    this.object.add(body, core, this.ring);
+    const torso = new Mesh(
+      new CapsuleGeometry(TORSO_RADIUS, TORSO_LENGTH, 6, 18),
+      bodyMaterial,
+    );
+    torso.position.y = TORSO_Y;
+    torso.castShadow = true;
+
+    this.head = new Mesh(new SphereGeometry(HEAD_RADIUS, 24, 18), headMaterial);
+    this.head.position.y = HEAD_Y;
+    this.head.castShadow = true;
+
+    const eyes: Mesh[] = [];
+    for (const side of [-1, 1]) {
+      const eye = new Mesh(new SphereGeometry(EYE_RADIUS, 10, 8), eyeMaterial);
+      eye.position.set(side * EYE_SPACING, EYE_Y - HEAD_Y, EYE_Z);
+      this.head.add(eye);
+      eyes.push(eye);
+    }
+    this.eyes = eyes;
+
+    const antenna = new Mesh(new CylinderGeometry(0.014, 0.014, 0.1, 8), antennaMaterial);
+    antenna.position.y = HEAD_RADIUS + 0.05;
+    this.tip = new Mesh(new SphereGeometry(0.055, 14, 10), this.tipMaterial);
+    this.tip.position.y = ANTENNA_TIP_Y - HEAD_Y;
+    this.head.add(antenna, this.tip);
+
+    this.leftArm = new Mesh(
+      new CapsuleGeometry(ARM_RADIUS, ARM_LENGTH, 4, 10),
+      bodyMaterial,
+    );
+    this.rightArm = this.leftArm.clone();
+    this.leftArm.position.set(-(TORSO_RADIUS + 0.055), ARM_Y, ARM_Z);
+    this.rightArm.position.set(TORSO_RADIUS + 0.055, ARM_Y, ARM_Z);
+    this.leftArm.rotation.set(ARM_REACH_TILT, 0, 0.2);
+    this.rightArm.rotation.set(ARM_REACH_TILT, 0, -0.2);
+
+    this.object.add(torso, this.head, this.leftArm, this.rightArm);
+    this.applyOpacity(statusOpacity(employee.status));
   }
 
   setStatus(status: EmployeeStatus): void {
@@ -105,36 +146,52 @@ export class EmployeeAvatar {
 
   /** 매 프레임 호출. delta 기반이라 프레임레이트가 흔들려도 속도가 같다. */
   update(delta: number, elapsed: number, motionEnabled: boolean): void {
-    const target = statusColor(this.status);
     const factor = Math.min(1, delta * COLOR_LERP_PER_SECOND);
-    for (const material of [this.bodyMaterial, this.coreMaterial, this.ringMaterial]) {
-      material.emissive.lerp(target, factor);
-    }
+    this.tipMaterial.color.lerp(statusColor(this.status), factor);
 
     const targetOpacity = statusOpacity(this.status);
-    this.coreMaterial.opacity += (targetOpacity - this.coreMaterial.opacity) * factor;
-    this.bodyMaterial.opacity += (0.62 * targetOpacity - this.bodyMaterial.opacity) * factor;
-    this.ringMaterial.opacity += (0.9 * targetOpacity - this.ringMaterial.opacity) * factor;
+    for (const material of this.fadeMaterials) {
+      material.opacity += (targetOpacity - material.opacity) * factor;
+    }
 
+    const t = elapsed + this.phase;
     const working = this.status === 'WORKING' && motionEnabled;
-    // 정지 상태에서도 링은 남지만 회전·맥동은 멈춘다. 움직임 자체가 "일하는 중" 신호다.
-    this.coreMaterial.emissiveIntensity = working
-      ? 1.5 + Math.sin(elapsed * BOB_SPEED * 2) * PULSE_RANGE
-      : 1.1;
-    if (working) this.ring.rotation.z = elapsed * RING_SPIN_SPEED;
-    this.object.position.y = this.baseY + (working ? Math.sin(elapsed * BOB_SPEED) * BOB_AMPLITUDE : 0);
+    if (working) {
+      // 양팔이 번갈아 치는 타이핑 + 팁 맥동. 멀리서도 "일하는 중"이 움직임으로 읽힌다.
+      this.leftArm.rotation.x = ARM_REACH_TILT + Math.sin(t * TYPING_SPEED) * TYPING_AMPLITUDE;
+      this.rightArm.rotation.x =
+        ARM_REACH_TILT + Math.sin(t * TYPING_SPEED + Math.PI) * TYPING_AMPLITUDE;
+      this.head.rotation.z = Math.sin(t * HEAD_SWAY_SPEED) * HEAD_SWAY_AMPLITUDE;
+      const pulse = 1 + Math.sin(t * 4) * TIP_PULSE_SCALE;
+      this.tip.scale.setScalar(pulse);
+    } else if (motionEnabled) {
+      this.leftArm.rotation.x = ARM_REACH_TILT;
+      this.rightArm.rotation.x = ARM_REACH_TILT;
+      this.head.rotation.z = 0;
+      this.tip.scale.setScalar(1);
+    }
+
+    // 눈 깜빡임. 일할 때만은 아니다 — 앉아 있으면 생명체처럼 보여야 한다.
+    if (motionEnabled) {
+      const blinking = t % BLINK_CYCLE < BLINK_LENGTH;
+      for (const eye of this.eyes) eye.scale.y = blinking ? 0.15 : 1;
+    }
   }
 
   dispose(): void {
-    for (const material of [this.bodyMaterial, this.coreMaterial, this.ringMaterial]) {
-      material.dispose();
-    }
-    for (const child of this.object.children) {
-      if (child instanceof Mesh) child.geometry.dispose();
-    }
+    this.object.traverse((child) => {
+      if (child instanceof Mesh) {
+        child.geometry.dispose();
+      }
+    });
+    for (const material of this.fadeMaterials) material.dispose();
   }
 
   get pickables(): readonly Object3D[] {
     return this.object.children;
+  }
+
+  private applyOpacity(opacity: number): void {
+    for (const material of this.fadeMaterials) material.opacity = opacity;
   }
 }
