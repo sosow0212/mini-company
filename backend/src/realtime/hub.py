@@ -6,6 +6,7 @@ ADR-008 위반이 아니다. 중요한 건 **이벤트가 다른 replica의 연�
 """
 
 import logging
+from contextlib import suppress
 
 from starlette.websockets import WebSocket, WebSocketState
 
@@ -28,6 +29,22 @@ class ConnectionHub:
     @property
     def connection_count(self) -> int:
         return len(self._connections)
+
+    async def close_all(self) -> None:
+        """graceful shutdown에서 열린 WS를 정리한다(§10.1).
+
+        닫지 않고 프로세스가 죽으면 브라우저는 그것을 네트워크 오류로 보고 지수 백오프
+        재연결에 들어간다. 정상 종료 코드로 닫으면 즉시 재연결해 다른 replica에 붙는다.
+        """
+        connections = list(self._connections)
+        self._connections.clear()
+        for websocket in connections:
+            with suppress(Exception):
+                # 이미 끊긴 소켓에 close를 호출하면 예외가 난다. 종료 경로에서 그걸로
+                # 멈출 이유가 없다.
+                await websocket.close(code=1001)
+        if connections:
+            logger.info("WS 연결 정리", extra={"count": len(connections)})
 
     async def broadcast(self, event: OfficeEvent) -> None:
         """EventBus의 구독자로 등록된다.

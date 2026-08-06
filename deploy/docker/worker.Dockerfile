@@ -2,13 +2,13 @@
 FROM python:3.12-slim AS builder
 
 WORKDIR /build
-COPY backend/pyproject.toml ./
-COPY backend/src ./src
+COPY workers/pyproject.toml ./
+COPY workers/src ./src
 RUN pip install --no-cache-dir --prefix=/install .
 
 FROM python:3.12-slim
 
-# non-root. UID를 고정해 K8s의 runAsUser와 맞춘다.
+# non-root. backend와 같은 UID를 쓴다 — K8s의 runAsUser를 한 값으로 맞출 수 있다.
 RUN useradd --create-home --uid 10001 app
 
 COPY --from=builder /install /usr/local
@@ -20,5 +20,6 @@ USER app
 # 그러면 종료 직전 로그(graceful shutdown 기록)가 유실될 수 있다.
 ENV PYTHONUNBUFFERED=1
 
-EXPOSE 8000
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 기본은 스케줄러(상시 프로세스). 한 번만 실행하려면 compose/K8s에서 command를
+# `python -m src.employees.collector`로 덮는다 — CronJob이 그렇게 쓴다(§10.2).
+CMD ["python", "-m", "src.scheduler"]

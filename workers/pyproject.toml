@@ -10,6 +10,8 @@ requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28",
     "pydantic-settings>=2.14",
+    # 로컬 주기 실행. K8s에서는 CronJob이 대체한다(§10.2).
+    "apscheduler>=3.11,<4",
 ]
 
 [project.optional-dependencies]

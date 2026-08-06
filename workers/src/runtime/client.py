@@ -7,6 +7,8 @@
 import httpx
 from pydantic import BaseModel, Field, SecretStr
 
+from src.runtime.retry import with_connection_retry
+
 _INTERNAL_PREFIX = "/internal/v1"
 
 
@@ -53,8 +55,10 @@ class BackendApiClient:
         worker_api_key: SecretStr,
         *,
         timeout: float = 10.0,
+        max_attempts: int = 3,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        self._max_attempts = max_attempts
         self._http = httpx.AsyncClient(
             base_url=base_url,
             headers={"X-Worker-Key": worker_api_key.get_secret_value()},
@@ -71,9 +75,17 @@ class BackendApiClient:
     async def aclose(self) -> None:
         await self._http.aclose()
 
+    async def _send(self, method: str, url: str, **kwargs: object) -> httpx.Response:
+        """모든 요청이 여기를 지난다. 연결 실패만 재시도한다(retry.py 참고)."""
+        return await with_connection_retry(
+            lambda: self._http.request(method, url, **kwargs),
+            max_attempts=self._max_attempts,
+            label=f"{method} {url}",
+        )
+
     async def find_employee_id(self, name: str) -> str | None:
         """공개 API로 내 id를 해석한다. 워커는 자기 이름 외의 신원을 모른다."""
-        res = await self._http.get("/api/v1/employees")
+        res = await self._send("GET", "/api/v1/employees")
         res.raise_for_status()
         for employee in res.json():
             if employee["name"] == name:
@@ -81,7 +93,8 @@ class BackendApiClient:
         return None
 
     async def start_task(self, *, employee_id: str, kind: str) -> TaskStarted:
-        res = await self._http.post(
+        res = await self._send(
+            "POST",
             f"{_INTERNAL_PREFIX}/tasks",
             json={"employeeId": employee_id, "kind": kind},
         )
@@ -89,7 +102,8 @@ class BackendApiClient:
         return TaskStarted.model_validate(res.json())
 
     async def add_activity(self, task_id: str, *, level: str, message: str) -> None:
-        res = await self._http.post(
+        res = await self._send(
+            "POST",
             f"{_INTERNAL_PREFIX}/tasks/{task_id}/activities",
             json={"level": level, "message": message},
         )
@@ -109,7 +123,7 @@ class BackendApiClient:
         payload: dict[str, object] = {"employeeId": employee_id, "messages": messages}
         if task_id is not None:
             payload["taskId"] = task_id
-        res = await self._http.post(f"{_INTERNAL_PREFIX}/llm/completions", json=payload)
+        res = await self._send("POST", f"{_INTERNAL_PREFIX}/llm/completions", json=payload)
         res.raise_for_status()
         return Completion.model_validate(res.json())
 
@@ -150,7 +164,7 @@ class BackendApiClient:
         if metadata:
             payload["metadata"] = metadata
 
-        res = await self._http.post(f"{_INTERNAL_PREFIX}/knowledge/documents", json=payload)
+        res = await self._send("POST", f"{_INTERNAL_PREFIX}/knowledge/documents", json=payload)
         res.raise_for_status()
         return Ingested.model_validate(res.json())
 
@@ -162,7 +176,8 @@ class BackendApiClient:
         summary: str | None = None,
         error: str | None = None,
     ) -> None:
-        res = await self._http.patch(
+        res = await self._send(
+            "PATCH",
             f"{_INTERNAL_PREFIX}/tasks/{task_id}",
             json={"status": status, "summary": summary, "error": error},
         )

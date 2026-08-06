@@ -136,3 +136,53 @@ async def test_broadcast_drops_a_connection_that_is_no_longer_connected() -> Non
 
 async def test_broadcast_is_a_noop_when_there_are_no_connections() -> None:
     await ConnectionHub().broadcast(_STATUS_EVENT)
+
+
+# ─── graceful shutdown (Phase 9) ──────────────────────────────
+
+
+class ClosableFakeWebSocket(FakeWebSocket):
+    """close()까지 흉내내는 대체물. 종료 경로 검증용."""
+
+    def __init__(self, *, fail_on_close: bool = False) -> None:
+        super().__init__()
+        self._fail_on_close = fail_on_close
+        self.closed_with: int | None = None
+
+    async def close(self, code: int = 1000) -> None:
+        if self._fail_on_close:
+            raise RuntimeError("이미 끊긴 소켓")
+        self.closed_with = code
+
+
+async def test_close_all_closes_every_connection_with_going_away() -> None:
+    """정상 종료 코드로 닫으면 브라우저가 즉시 재연결해 다른 replica에 붙는다.
+    닫지 않고 죽으면 네트워크 오류로 보고 지수 백오프에 들어간다.
+    """
+    hub = ConnectionHub()
+    first, second = ClosableFakeWebSocket(), ClosableFakeWebSocket()
+    await hub.register(first)
+    await hub.register(second)
+
+    await hub.close_all()
+
+    assert first.closed_with == 1001
+    assert second.closed_with == 1001
+    assert hub.connection_count == 0
+
+
+async def test_close_all_survives_a_socket_that_fails_to_close() -> None:
+    """종료 경로에서 예외가 나면 나머지 정리가 멈춘다."""
+    hub = ConnectionHub()
+    broken, healthy = ClosableFakeWebSocket(fail_on_close=True), ClosableFakeWebSocket()
+    await hub.register(broken)
+    await hub.register(healthy)
+
+    await hub.close_all()
+
+    assert healthy.closed_with == 1001
+    assert hub.connection_count == 0
+
+
+async def test_close_all_is_a_noop_without_connections() -> None:
+    await ConnectionHub().close_all()
