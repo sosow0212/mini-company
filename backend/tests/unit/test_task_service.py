@@ -358,3 +358,127 @@ async def test_reap_continues_after_one_task_fails(make_employee, make_task) -> 
     assert len(reaped) == 2
     released = await employee_repo.get(second.id)
     assert released is not None and released.current_task_id is None
+
+
+# ─── 사람이 시키는 일 → 워커가 집어감 ──────────────────────────
+
+
+async def test_assign_queues_the_task_instead_of_running_it(make_employee) -> None:
+    """API가 RUNNING을 찍으면 워커가 죽어 있어도 일하는 것처럼 보인다."""
+    employee = make_employee("노아")
+    service, employee_repo, _, _ = _service(employees=[employee])
+
+    task = await service.assign_task(
+        employee_id=employee.id, kind="collect_market_data", title="자료 모아줘"
+    )
+
+    assert task.status is TaskStatus.QUEUED
+    assert task.title == "자료 모아줘"
+    assert task.started_at is None
+    # 아직 아무도 집어가지 않았으므로 직원은 묶이지 않는다.
+    reloaded = await employee_repo.get(employee.id)
+    assert reloaded is not None and reloaded.current_task_id is None
+
+
+async def test_assign_rejects_a_second_pending_order(make_employee) -> None:
+    """대기열을 허용하면 current_task_id 하나로는 표현할 수 없다."""
+    employee = make_employee("노아")
+    service, _, _, _ = _service(employees=[employee])
+    await service.assign_task(employee_id=employee.id, kind="collect_market_data")
+
+    with pytest.raises(EmployeeBusy):
+        await service.assign_task(employee_id=employee.id, kind="write_report")
+
+
+async def test_assign_rejects_when_the_employee_is_already_running_something(
+    make_employee,
+) -> None:
+    employee = make_employee("노아")
+    service, _, _, _ = _service(employees=[employee])
+    await service.start_task(employee_id=employee.id, kind="collect_market_data")
+
+    with pytest.raises(EmployeeBusy):
+        await service.assign_task(employee_id=employee.id, kind="write_report")
+
+
+async def test_claim_takes_the_oldest_order_first(make_employee) -> None:
+    """먼저 시킨 일이 먼저 실행된다. 정렬이 없으면 큐가 아니라 무작위 집합이다."""
+    first, second = make_employee("먼저"), make_employee("나중")
+    service, _, _, _ = _service(employees=[first, second])
+    await service.assign_task(employee_id=first.id, kind="collect_market_data", title="1번")
+    await service.assign_task(employee_id=second.id, kind="collect_market_data", title="2번")
+
+    claimed = await service.claim_next_task()
+
+    assert claimed is not None and claimed.title == "1번"
+
+
+async def test_claim_marks_the_employee_working(make_employee) -> None:
+    employee = make_employee("노아")
+    service, employee_repo, _, _ = _service(employees=[employee])
+    await service.assign_task(employee_id=employee.id, kind="collect_market_data")
+
+    claimed = await service.claim_next_task()
+
+    assert claimed is not None and claimed.status is TaskStatus.RUNNING
+    assert claimed.started_at is not None
+    reloaded = await employee_repo.get(employee.id)
+    assert reloaded is not None
+    assert reloaded.status is EmployeeStatus.WORKING
+    assert reloaded.current_task_id == PydanticObjectId(claimed.id)
+
+
+async def test_claim_returns_none_when_nothing_is_queued() -> None:
+    """빈 대기열은 오류가 아니다. 대부분의 순간에 참이다."""
+    service, _, _, _ = _service()
+
+    assert await service.claim_next_task() is None
+
+
+async def test_claim_does_not_hand_out_the_same_task_twice(make_employee) -> None:
+    employee = make_employee("노아")
+    service, _, _, _ = _service(employees=[employee])
+    await service.assign_task(employee_id=employee.id, kind="collect_market_data")
+
+    assert await service.claim_next_task() is not None
+    assert await service.claim_next_task() is None
+
+
+async def test_claim_cancels_an_order_whose_employee_was_fired(make_employee) -> None:
+    """지시 후 해고된 경우. 담당자가 없으니 실행할 수 없다."""
+    employee = make_employee("퇴사예정")
+    service, employee_repo, task_repo, _ = _service(employees=[employee])
+    assigned = await service.assign_task(employee_id=employee.id, kind="collect_market_data")
+    await employee_repo.delete(employee.id)
+
+    assert await service.claim_next_task() is None
+    orphan = await task_repo.get(PydanticObjectId(assigned.id))
+    assert orphan is not None and orphan.status is TaskStatus.CANCELLED
+
+
+async def test_cancel_withdraws_a_pending_order(make_employee) -> None:
+    employee = make_employee("노아")
+    service, _, _, _ = _service(employees=[employee])
+    assigned = await service.assign_task(employee_id=employee.id, kind="collect_market_data")
+
+    cancelled = await service.cancel_task(PydanticObjectId(assigned.id))
+
+    assert cancelled.status is TaskStatus.CANCELLED
+    assert cancelled.finished_at is not None
+
+
+async def test_cancel_refuses_a_task_a_worker_is_already_running(make_employee) -> None:
+    """워커는 취소를 모른 채 계속 돌고, 나중에 마감에서 전이 거부를 맞는다."""
+    employee = make_employee("노아")
+    service, _, _, _ = _service(employees=[employee])
+    running = await service.start_task(employee_id=employee.id, kind="collect_market_data")
+
+    with pytest.raises(InvalidTaskTransition):
+        await service.cancel_task(PydanticObjectId(running.id))
+
+
+async def test_assign_raises_when_the_employee_does_not_exist() -> None:
+    service, _, _, _ = _service()
+
+    with pytest.raises(EmployeeNotFound):
+        await service.assign_task(employee_id=PydanticObjectId(), kind="collect_market_data")

@@ -11,6 +11,21 @@
   box-sizing: border-box;
 }
 
+/*
+ * `hidden` 속성을 어떤 display 선언보다 우선시킨다.
+ *
+ * 브라우저 기본값은 `[hidden] { display: none }`인데 특이성이 클래스 하나와 같다.
+ * 그래서 `.empty-state { display: grid }`처럼 나중에 선언한 규칙이 이겨버리고,
+ * `element.hidden = true`가 아무 효과도 내지 못한다. 실제로 직원이 있는데도
+ * "사무실이 비어 있습니다"가 계속 떠 있는 버그가 이것 때문이었다.
+ *
+ * 여기서 !important를 쓰는 이유: 개별 컴포넌트마다 `.x[hidden]`을 기억해 붙이는 방식은
+ * 반드시 하나를 빠뜨린다. 숨김은 표시 규칙보다 항상 강해야 하는 몇 안 되는 경우다.
+ */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   height: 100%;
@@ -449,6 +464,12 @@ body {
   list-style: none;
   display: grid;
   gap: var(--gap-tight);
+  /*
+   * 로그가 길어도 레일을 독점하지 않게 한다. 제한이 없으면 활동이 쌓인 직원을 열었을 때
+   * 원장·작업 패널이 화면 밖으로 완전히 밀려난다.
+   */
+  max-height: 18rem;
+  overflow-y: auto;
 }
 
 .activity-log li {

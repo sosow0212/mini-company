@@ -12,4 +12,5 @@ namespace: mini-company
 
 resources:
   - mongo.yaml
+  - redis.yaml
   - milvus.yaml

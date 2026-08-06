@@ -9,7 +9,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from src.runtime.client import BackendApiClient
+from src.runtime.client import BackendApiClient, LlmNotConfigured
 
 _MESSAGES = [{"role": "user", "content": "요약해줘"}]
 
@@ -100,14 +100,16 @@ async def test_complete_sends_the_worker_key() -> None:
     assert captured["key"] == "test-key"
 
 
-async def test_complete_raises_on_error_status_so_the_caller_can_decide() -> None:
-    """503(키 없음)은 작업 실패가 아니라 '이 환경에선 LLM 불가'다. 판단은 호출자가 한다."""
+async def test_complete_raises_a_named_error_when_no_provider_is_configured() -> None:
+    """503(키 없음)은 버그가 아니라 설정 문제다.
+
+    HTTPStatusError를 그대로 흘리면 작업 실패 사유가 "503 for url ..."이 되어, 화면을
+    보는 사람이 무엇을 해야 할지 알 수 없다. 전용 예외로 원인과 해결책을 실어 보낸다.
+    """
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, json={"code": "llm_provider_not_configured"})
 
     async with _client(handler) as client:
-        with pytest.raises(httpx.HTTPStatusError) as raised:
+        with pytest.raises(LlmNotConfigured, match="OLLAMA_ENABLED"):
             await client.complete(employee_id="emp-1", messages=_MESSAGES)
-
-    assert raised.value.response.status_code == 503

@@ -12,7 +12,7 @@ main.py의 include_router다 — 엔드포인트마다 인증을 붙이면 반�
 from typing import Annotated
 
 from beanie import PydanticObjectId
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, Response, status
 
 from src.pagination import DEFAULT_LIMIT, MAX_LIMIT, CursorPage
 from src.tasks.constants import TaskStatus
@@ -20,6 +20,7 @@ from src.tasks.dependencies import TaskServiceDep
 from src.tasks.schemas import (
     ActivityResponse,
     AddActivityRequest,
+    AssignTaskRequest,
     FinishTaskRequest,
     StartTaskRequest,
     TaskResponse,
@@ -38,6 +39,24 @@ async def list_tasks(
     return await service.list_tasks(employee_id=employee_id, status=status)
 
 
+@public_router.post("/tasks", status_code=status.HTTP_201_CREATED)
+async def assign_task(request: AssignTaskRequest, service: TaskServiceDep) -> TaskResponse:
+    """직원에게 일을 시킨다 → QUEUED. 워커가 집어가면 RUNNING이 된다.
+
+    바로 RUNNING으로 만들지 않는 이유: 실행 주체는 워커다. API가 RUNNING을 찍으면
+    워커가 죽어 있어도 화면에는 일하는 것처럼 보인다.
+    """
+    return await service.assign_task(
+        employee_id=request.employee_id, kind=request.kind, title=request.title
+    )
+
+
+@public_router.post("/tasks/{task_id}/cancel")
+async def cancel_task(task_id: PydanticObjectId, service: TaskServiceDep) -> TaskResponse:
+    """대기 중인 지시를 거둔다. 이미 실행 중이면 409 — 워커가 마감해야 한다."""
+    return await service.cancel_task(task_id)
+
+
 @public_router.get("/employees/{employee_id}/activities")
 async def list_employee_activities(
     employee_id: PydanticObjectId,
@@ -53,7 +72,24 @@ async def start_task(
     request: StartTaskRequest,
     service: TaskServiceDep,
 ) -> TaskResponse:
-    return await service.start_task(employee_id=request.employee_id, kind=request.kind)
+    """워커가 **스스로 만든** 일(스케줄 실행). 사람이 시킨 일은 claim으로 집어간다."""
+    return await service.start_task(
+        employee_id=request.employee_id, kind=request.kind, title=request.title
+    )
+
+
+@internal_router.post("/claim")
+async def claim_task(service: TaskServiceDep, response: Response) -> TaskResponse | None:
+    """대기열에서 하나를 집어 RUNNING으로 만든다. 비어 있으면 204.
+
+    204를 쓰는 이유: "일이 없다"는 정상이다. 404로 답하면 워커 로그가 오류로 뒤덮여
+    진짜 문제가 묻힌다.
+    """
+    task = await service.claim_next_task()
+    if task is None:
+        response.status_code = status.HTTP_204_NO_CONTENT
+        return None
+    return task
 
 
 @internal_router.post("/{task_id}/activities", status_code=status.HTTP_201_CREATED)

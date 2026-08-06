@@ -6,9 +6,10 @@
 #   - CronJob 워커를 포함한다 — 로컬 APScheduler를 플랫폼 스케줄러로 대체
 #   - DB 주소가 클러스터 내부 서비스명을 가리킨다
 #
-# **replica는 여전히 1이다.** EVENT_BUS=memory에서 2로 올리면 어떤 클라이언트는 WS
-# 이벤트를 받지 못한다(ADR-008). replica 2 + RedisEventBus는 Phase 12다 —
-# 순서를 지키는 편이 낫다. 지금 2로 올리면 "가끔 화면이 안 갱신되는" 버그가 기본 동작이 된다.
+# **backend replica가 2다**(Phase 12). RedisEventBus가 들어왔기 때문에 가능해졌다 —
+# 그 전에 2로 올렸다면 "가끔 화면이 안 갱신되는" 버그가 기본 동작이 됐을 것이다(ADR-008).
+#
+# frontend는 1로 둔다. 정적 파일 서빙이라 늘릴 이유가 없고, 늘려도 배울 게 없다.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -20,7 +21,7 @@ resources:
   - ../../jobs
 
 replicas:
-  - { name: backend, count: 1 }
+  - { name: backend, count: 2 }
   - { name: frontend, count: 1 }
 
 patches:

@@ -34,6 +34,7 @@ def _new_task(
     status: TaskStatus = TaskStatus.RUNNING,
     created_at: datetime = _BASE,
     started_at: datetime | None = None,
+    title: str | None = None,
 ) -> Task:
     """id 없이 만든다. 저장은 repository.save가 담당한다.
 
@@ -43,6 +44,7 @@ def _new_task(
     return Task(
         employee_id=employee_id or PydanticObjectId(),
         kind="collect_market_data",
+        title=title,
         status=status,
         started_at=None if status is TaskStatus.QUEUED else (started_at or created_at),
         created_at=created_at,
@@ -182,6 +184,57 @@ class TaskRepositoryContract:
         found = await repository.list_running_started_before(datetime.now(UTC))
 
         assert found == []
+
+    # ─── 대기열 클레임 ──────────────────────────────────────────
+
+    async def test_claim_returns_none_when_queue_is_empty(
+        self, repository: TaskRepositoryProtocol
+    ) -> None:
+        await repository.save(_new_task(status=TaskStatus.RUNNING))
+
+        assert await repository.claim_oldest_queued(started_at=datetime.now(UTC)) is None
+
+    async def test_claim_transitions_to_running_with_start_time(
+        self, repository: TaskRepositoryProtocol
+    ) -> None:
+        await repository.save(_new_task(status=TaskStatus.QUEUED))
+        moment = datetime.now(UTC)
+
+        claimed = await repository.claim_oldest_queued(started_at=moment)
+
+        assert claimed is not None
+        assert claimed.status is TaskStatus.RUNNING
+        assert claimed.started_at is not None
+
+    async def test_claim_takes_the_oldest_first(self, repository: TaskRepositoryProtocol) -> None:
+        """정렬이 없으면 큐가 아니라 무작위 집합이다."""
+        await repository.save(_new_task(status=TaskStatus.QUEUED, created_at=_BASE))
+        await repository.save(
+            _new_task(status=TaskStatus.QUEUED, created_at=_BASE - timedelta(hours=1))
+        )
+
+        claimed = await repository.claim_oldest_queued(started_at=datetime.now(UTC))
+
+        assert claimed is not None
+        assert claimed.created_at == _BASE - timedelta(hours=1)
+
+    async def test_claim_hands_each_task_out_once(self, repository: TaskRepositoryProtocol) -> None:
+        """두 워커가 같은 작업을 집으면 수집은 중복 적재, LLM은 비용이 두 배가 된다."""
+        await repository.save(_new_task(status=TaskStatus.QUEUED))
+
+        first = await repository.claim_oldest_queued(started_at=datetime.now(UTC))
+        second = await repository.claim_oldest_queued(started_at=datetime.now(UTC))
+
+        assert first is not None
+        assert second is None
+
+    async def test_claimed_task_keeps_its_title(self, repository: TaskRepositoryProtocol) -> None:
+        """워커가 title로 무엇을 할지 정한다(검색어·주제). 왕복에서 잃으면 안 된다."""
+        await repository.save(_new_task(status=TaskStatus.QUEUED, title="반도체 조사"))
+
+        claimed = await repository.claim_oldest_queued(started_at=datetime.now(UTC))
+
+        assert claimed is not None and claimed.title == "반도체 조사"
 
 
 class ActivityRepositoryContract:

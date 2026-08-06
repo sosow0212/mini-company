@@ -8,6 +8,32 @@ AI 직원(에이전트)이 수행한 작업을 3D 오피스로 시각화하고, 
 - 설계: [`docs/PROJECT_BLUEPRINT.md`](docs/PROJECT_BLUEPRINT.md)
 - 에이전트 코딩 규칙: [`AGENTS.md`](AGENTS.md)
 
+## 무엇을 하는 화면인가
+
+```
+[+ 직원 채용]  →  아바타 클릭  →  [일 시키기]  →  에이전트가 집어감  →  결과 보고
+   이름·직무        상세 패널       종류 + 한 줄       하네스 실행         작업 목록 + 말풍선
+```
+
+1. **채용** — 이름과 직무만 정한다. 책상 자리와 LLM 프로파일은 서버가 직무에서 정한다.
+2. **일 시키기** — 종류(수집·분석·보고서)와 한 줄 지시. 상태는 `QUEUED`로 들어간다.
+3. **에이전트가 집어간다** — `agent` 프로세스가 대기열을 폴링해 원자적으로 클레임하고
+   `RUNNING`으로 바꾼다. 여기서 직원 아바타가 초록으로 바뀐다.
+4. **하네스 안에서 워크플로우 실행** — 단계마다 활동을 남기고(말풍선), 끝나면 요약을 쓴다.
+   실패하든 취소되든 하네스가 반드시 마감한다.
+
+| 시킬 수 있는 일 | 하는 일 | 제목의 쓰임 |
+|---|---|---|
+| 자료 수집 | 외부 소스 → 파싱·청킹·임베딩 → 지식 베이스 | 기록용 |
+| 자료 분석 | 지식 검색 → LLM으로 요점 정리 | **검색어** |
+| 보고서 작성 | 근거 검색 → LLM으로 문장 작성 | **주제** |
+
+새 종류는 `workers/src/workflows/`에 함수 하나를 추가하고 레지스트리에 등록하면 된다 —
+에이전트 루프는 고치지 않는다.
+
+> **`QUEUED`에서 안 움직인다면** `agent` 프로세스가 떠 있지 않은 것이다.
+> `docker compose --profile app up -d agent` 또는 `make agent`.
+
 ## 현재 진행 상황
 
 | Phase | 산출물                                                      | 상태 |
@@ -24,7 +50,7 @@ AI 직원(에이전트)이 수행한 작업을 3D 오피스로 시각화하고, 
 | 9     | 스케줄러, 멈춘 작업 자동 회수, 연결 재시도, JSON 로깅, graceful shutdown     | 완료 |
 | 10    | kind 클러스터에 앱 배포(DB는 호스트 compose), Ingress·프로브·kustomize      | 완료 |
 | 11    | Mongo/Milvus StatefulSet 이전, Secret/ConfigMap 분리, 키 로테이션, CronJob | 완료 |
-| 12    | Redis EventBus + backend replica 2, HPA, TLS                | 예정 |
+| 12    | Redis EventBus 전환 → backend replica 2                       | 완료 |
 
 ## 실행
 
@@ -82,10 +108,15 @@ make clean       # 볼륨까지 삭제
 ```
 GET  /health/live                                   # 의존성 검사 없음
 GET  /health/ready                                  # mongo + milvus 검사, 실패 시 503
-GET  /api/v1/employees?role=&status=
-GET  /api/v1/employees/{id}
+GET    /api/v1/employees?role=&status=
+POST   /api/v1/employees                            # 채용 (자리·프로파일은 서버가 정한다)
+GET    /api/v1/employees/{id}
+PATCH  /api/v1/employees/{id}                       # 이름·직무 변경 (프로파일도 함께)
+DELETE /api/v1/employees/{id}                       # 해고. 작업 중이면 409
 GET  /api/v1/employees/{id}/activities?limit=&cursor=   # { items, nextCursor }
-GET  /api/v1/tasks?employee_id=&status=
+GET    /api/v1/tasks?employee_id=&status=
+POST   /api/v1/tasks                                # 일 시키기 → QUEUED
+POST   /api/v1/tasks/{id}/cancel                    # 대기 중인 지시 취소
 GET  /api/v1/ledger/summary?period=daily|monthly|all    # 서버가 aggregate한 값만
 GET  /api/v1/knowledge/documents?limit=              # 수집 문서 목록
 GET  /api/v1/knowledge/documents/{id}                # 원문 메타 상세
@@ -96,7 +127,8 @@ GET  /api/v1/office/snapshot                        # 직원 전체 + 원장 요
 WS   /api/v1/ws/office                              # 이후의 변화분만
 
 # 내부 (워커 전용, X-Worker-Key 헤더 필수)
-POST  /internal/v1/tasks                            # 작업 시작 → 직원 WORKING
+POST  /internal/v1/tasks                            # 워커가 스스로 시작 (스케줄 실행)
+POST  /internal/v1/tasks/claim                      # 지시받은 일을 집어감 → RUNNING
 POST  /internal/v1/tasks/{id}/activities            # 활동 로그 1건 (append-only)
 PATCH /internal/v1/tasks/{id}                       # SUCCEEDED/FAILED → 직원 IDLE/ERROR
 POST  /internal/v1/ledger/entries                   # 원시 트랜잭션 (append-only)
@@ -187,9 +219,25 @@ WS로 받는다. **재연결 시에는 반드시 스냅샷을 다시 조회해�
 - `type`이 판별자인 discriminated union이라 프론트가 `switch (event.type)` 하나로 분기한다.
 - 숫자는 전부 문자열이다. 이벤트의 원장 값도 서버가 aggregate한 결과다(ADR-002).
 - 발행은 **상태를 바꾼 service**가 한다. 상태 전이와 발행이 갈라지면 화면이 조용히 멈춘다.
-- 브로드캐스트는 `EventBus`를 경유한다(ADR-008). 지금은 `InMemoryEventBus`이고,
-  **replica가 2 이상이면 이벤트가 자기 프로세스의 연결에만 가므로** 부팅 시 경고를 남긴다.
-  Phase 12에서 `RedisEventBus`로 교체하면 도메인 코드는 그대로다.
+- 브로드캐스트는 `EventBus`를 경유한다(ADR-008). 구현은 `EVENT_BUS`가 고른다.
+
+### 이벤트 버스 두 가지 (Phase 12)
+
+| `EVENT_BUS` | 구현 | 쓰는 곳 |
+|---|---|---|
+| `memory` (기본) | `InMemoryEventBus` | 로컬 개발, replica 1. 부팅 시 경고를 남긴다 |
+| `redis` | `RedisEventBus` | replica 2 이상. `REDIS_URL` 필요 |
+
+WS 연결은 특정 Pod에 묶인다. 상태를 바꾼 Pod와 그 사용자의 WS가 붙은 Pod가 다르면
+인메모리 버스로는 이벤트가 닿지 않는다 — Redis Pub/Sub이 그 사이를 잇는다.
+
+**발행한 Pod도 Redis를 한 바퀴 돌아 받는다.** 로컬 지름길을 두지 않는 이유는, 그러면
+"발행한 Pod에서는 되는데 다른 Pod에서는 안 되는" 차이가 생기고 그건 replica 1인 개발
+환경에서 절대 드러나지 않기 때문이다. 같은 경로를 강제하면 개발 중 동작이 곧 운영 동작이다.
+
+발행 실패는 로그만 남기고 삼킨다. 이벤트 전달이 업무 트랜잭션을 되돌리면 안 되고,
+놓친 화면은 재연결 시 스냅샷으로 복구된다 — 원장 기록이 사라지는 것과는 성격이 다르다.
+같은 이유로 **redis는 readiness에 넣지 않는다.** 버스가 죽어도 API는 답해야 한다.
 
 ## 프론트엔드 (Phase 6)
 
@@ -410,7 +458,8 @@ make k8s-deploy
 curl localhost:8080/api/v1/office/snapshot
 
 # Phase 11 — DB까지 클러스터 안으로
-make k8s-deploy-full              # StatefulSet + bootstrap Job + CronJob
+make k8s-deploy-full              # StatefulSet + Redis + bootstrap Job + CronJob
+                                  # backend replica 2 (Phase 12)
 make k8s-status
 make k8s-rotate-key               # 무중단 키 교체 실습
 make k8s-down
@@ -419,7 +468,7 @@ make k8s-down
 | 디렉토리                | 내용                                                    |
 |---------------------|-------------------------------------------------------|
 | `base/`             | 환경 무관 — Deployment, Service, Ingress, ConfigMap        |
-| `data-stores/`      | Mongo / etcd / minio / Milvus StatefulSet + rs 초기화 Job |
+| `data-stores/`      | Mongo / etcd / minio / Milvus StatefulSet + rs 초기화 Job, Redis Deployment |
 | `jobs/`             | bootstrap(인덱스+시드) Job, collector CronJob               |
 | `overlays/local/`   | Phase 10 — 호스트 DB 주소, `APP_ENV=local`                 |
 | `overlays/prod/`    | Phase 11 — 클러스터 DB 주소, `APP_ENV=staging`              |
@@ -444,8 +493,24 @@ Phase 10이 확인하려는 것은 "앱이 K8s에서 뜨는가"이지 "키가 �
 - **ConfigMap에 빈 문자열을 두면 기본값이 사라진다.** `.env`와 달리 환경변수가 "빈 값으로
   존재"하게 되기 때문이다. `Settings`가 빈 문자열을 미설정으로 정규화해 이 함정을 막는다.
 
-replica는 아직 1이다. `EVENT_BUS=memory`에서 2로 올리면 어떤 클라이언트는 WS 이벤트를
-받지 못한다(ADR-008). replica 2 + `RedisEventBus`는 Phase 12다.
+### replica 2 (Phase 12)
+
+`overlays/prod`의 backend는 replica 2이고 `EVENT_BUS=redis`다. 이 둘은 세트다 —
+`memory`인 채로 2로 올리면 WS가 붙은 Pod와 상태를 바꾼 Pod가 다를 때 그 사용자만
+화면이 멈춘다. 실제로 대조 실험에서 그대로 재현된다:
+
+```bash
+# 두 Pod에 각각 WS를 열고, 한쪽 Pod에만 상태 변경 요청을 보낸다
+kubectl -n mini-company set env deployment/backend EVENT_BUS=memory
+#   → pod-A: WORKING / pod-B: 수신 못 함
+kubectl apply -k deploy/k8s/overlays/prod      # redis로 복구
+#   → pod-A: WORKING / pod-B: WORKING
+```
+
+Service 라운드로빈에 기대면 두 연결이 우연히 같은 Pod로 갈 수 있어 아무것도 증명하지
+못한다. Pod에 직접 port-forward해서 확인해야 한다.
+
+frontend는 1로 둔다. 정적 파일 서빙이라 늘려도 배울 게 없다.
 
 ## 포트
 
@@ -457,6 +522,7 @@ replica는 아직 1이다. `EVENT_BUS=memory`에서 2로 올리면 어떤 클라
 | 27018 | mongo (replica set `rs0`) — 27017이 아닌 이유는 아래 |
 | 19530 | milvus gRPC                                  |
 | 9091  | milvus `/healthz`                            |
+| 6379  | redis (이벤트 버스)                              |
 
 ## Mongo 접속 주소가 두 벌인 이유
 

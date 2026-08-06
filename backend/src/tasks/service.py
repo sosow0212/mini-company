@@ -85,9 +85,107 @@ class TaskService:
             next_cursor=next_cursor,
         )
 
+    # ─── 사람이 시키는 일 ───────────────────────────────────────
+
+    async def assign_task(
+        self,
+        *,
+        employee_id: PydanticObjectId,
+        kind: str,
+        title: str | None = None,
+    ) -> TaskResponse:
+        """지시 → QUEUED. 실행은 워커가 집어갈 때 시작된다.
+
+        여기서 바로 RUNNING으로 만들지 않는 이유: 실행 주체는 워커 프로세스다. API가
+        RUNNING을 찍어두면 워커가 죽어 있어도 화면에는 일하는 것처럼 보이고, 회수
+        루프가 타임아웃으로 걷어낼 때까지 아무도 그 사실을 모른다. QUEUED로 두면
+        "시켰지만 아직 아무도 안 잡았다"가 화면에 그대로 드러난다.
+
+        직원당 활성 작업은 1개다. 대기열을 허용하면 `current_task_id` 하나로는
+        표현할 수 없고, 3D 씬의 아바타 상태도 무엇을 보여줄지 정해지지 않는다.
+        """
+        employee = await self._employees.get(employee_id)
+        if employee is None:
+            raise EmployeeNotFound
+        if employee.current_task_id is not None:
+            raise EmployeeBusy
+
+        pending = await self._tasks.list(employee_id=employee_id, status=TaskStatus.QUEUED)
+        if pending:
+            raise EmployeeBusy
+
+        task = await self._tasks.save(
+            Task(
+                employee_id=employee_id,
+                kind=kind,
+                title=(title or "").strip() or None,
+                status=TaskStatus.QUEUED,
+                created_at=datetime.now(UTC),
+            )
+        )
+        return TaskResponse.from_domain(task)
+
+    async def cancel_task(self, task_id: PydanticObjectId) -> TaskResponse:
+        """대기 중인 지시를 거둔다. 실행 중인 작업은 워커가 마감한다.
+
+        RUNNING을 여기서 CANCELLED로 만들면 워커는 그 사실을 모른 채 계속 돌고,
+        나중에 마감을 시도하다 전이 거부(409)를 맞는다. 상태 머신은 RUNNING→CANCELLED를
+        허용하지만 그건 회수 루프(Phase 9)의 자리다 — 워커가 이미 죽었다는 근거가 있을 때만.
+        """
+        task = await self._tasks.get(task_id)
+        if task is None:
+            raise TaskNotFound
+        if task.status is not TaskStatus.QUEUED:
+            raise InvalidTaskTransition
+        cancelled = await self._tasks.save(
+            task.model_copy(
+                update={"status": TaskStatus.CANCELLED, "finished_at": datetime.now(UTC)}
+            )
+        )
+        return TaskResponse.from_domain(cancelled)
+
     # ─── 내부 명령 (워커 전용) ──────────────────────────────────
 
-    async def start_task(self, *, employee_id: PydanticObjectId, kind: str) -> TaskResponse:
+    async def claim_next_task(self) -> TaskResponse | None:
+        """대기열에서 하나를 집어 RUNNING으로 만든다. 없으면 None.
+
+        `start_task`와 나눈 이유: 저쪽은 워커가 **스스로 만든** 일(스케줄 실행)이고,
+        이쪽은 **사람이 시킨** 일을 집어가는 경로다. 둘을 합치면 "누가 시작시켰나"가
+        기록에서 사라진다.
+
+        전이는 repository가 원자적으로 처리한다. 여기서 조회 후 저장으로 나누면
+        워커 둘이 같은 작업을 집는다.
+        """
+        task = await self._tasks.claim_oldest_queued(started_at=datetime.now(UTC))
+        if task is None:
+            return None
+
+        employee = await self._employees.get(task.employee_id)
+        if employee is None:
+            # 지시 후 해고된 경우. 담당자가 없으니 실행할 수 없다.
+            logger.warning("담당 직원이 사라진 작업을 마감한다: task=%s", task.id)
+            await self._tasks.save(
+                task.model_copy(
+                    update={
+                        "status": TaskStatus.CANCELLED,
+                        "finished_at": datetime.now(UTC),
+                        "error": "담당 직원이 존재하지 않습니다",
+                    }
+                )
+            )
+            return None
+
+        working = await self._employees.save(
+            employee.model_copy(
+                update={"status": EmployeeStatus.WORKING, "current_task_id": task.id}
+            )
+        )
+        await self._publish_status(working)
+        return TaskResponse.from_domain(task)
+
+    async def start_task(
+        self, *, employee_id: PydanticObjectId, kind: str, title: str | None = None
+    ) -> TaskResponse:
         employee = await self._employees.get(employee_id)
         if employee is None:
             raise EmployeeNotFound
@@ -101,6 +199,7 @@ class TaskService:
             Task(
                 employee_id=employee_id,
                 kind=kind,
+                title=(title or "").strip() or None,
                 status=TaskStatus.RUNNING,
                 started_at=now,
                 created_at=now,

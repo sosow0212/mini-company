@@ -52,7 +52,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.llm_gateway = build_gateway(settings)
     # service가 publish → 버스 → 이 프로세스의 허브 → WS 연결.
     # 이 조립 지점만 바꾸면 Phase 12에서 RedisEventBus로 교체된다(도메인 코드는 그대로).
-    attach_realtime(app, settings)
+    event_bus = attach_realtime(app, settings)
+    # redis 버스는 여기서 구독 리스너가 뜬다. 이걸 빠뜨리면 이 Pod는 이벤트를 발행만
+    # 하고 다른 Pod가 발행한 것은 받지 못한다 — replica 1에서는 증상이 없어 더 위험하다.
+    await event_bus.start()
 
     # 파서 등록 누락과 임베딩 차원 불일치를 여기서 잡는다. 특히 차원 불일치는
     # 통과시키면 예외 없이 검색 품질만 조용히 망가진다(§15-1).
@@ -79,6 +82,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("종료 시작")
         if reaper is not None:
             await _cancel(reaper)
+        # 버스를 먼저 멈춘다. 허브를 닫은 뒤에 이벤트가 들어오면 이미 없는 연결로
+        # 브로드캐스트하게 되고, 종료 로그가 예외로 어지러워진다.
+        await event_bus.stop()
         await app.state.connection_hub.close_all()
         await app.state.http.aclose()
         await app.state.knowledge.client.close()

@@ -32,6 +32,17 @@ class InMemoryTaskRepository:
             and task.started_at < moment
         ]
 
+    async def claim_oldest_queued(self, *, started_at: datetime) -> Task | None:
+        queued = [task for task in self._by_id.values() if task.status is TaskStatus.QUEUED]
+        if not queued:
+            return None
+        # 실제 구현과 같은 순서 규칙(먼저 지시한 것부터). 여기서 정렬을 빠뜨리면
+        # fake만 무작위로 집어 "테스트는 통과하는데 순서가 뒤엉키는" 상태가 된다.
+        oldest = min(queued, key=lambda task: task.created_at)
+        claimed = oldest.model_copy(update={"status": TaskStatus.RUNNING, "started_at": started_at})
+        self._by_id[_require_task_id(claimed)] = claimed
+        return claimed
+
     async def list(
         self,
         *,

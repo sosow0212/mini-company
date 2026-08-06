@@ -61,7 +61,7 @@ async def test_run_task_records_start_activity_and_success_finish_in_order() -> 
         ("POST", "/internal/v1/tasks/task-1/activities"),
         ("PATCH", "/internal/v1/tasks/task-1"),
     ]
-    assert calls[0][2] == {"employeeId": "emp-1", "kind": "collect_market_data"}
+    assert calls[0][2] == {"employeeId": "emp-1", "kind": "collect_market_data", "title": None}
     assert calls[1][2] == {"level": "INFO", "message": "수집을 시작한다"}
     assert calls[2][2] == {"status": "SUCCEEDED", "summary": "더미 수집 작업 완료", "error": None}
 

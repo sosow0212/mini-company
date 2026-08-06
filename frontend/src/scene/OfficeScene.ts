@@ -37,6 +37,46 @@ import { createRoom, Workstation } from './OfficeLayout';
 const CAMERA_POSITION = { x: 0, y: 7.6, z: 12.2 } as const;
 const CAMERA_TARGET = { x: 0, y: 0.95, z: -0.3 } as const;
 
+/**
+ * 직원이 늘면 카메라가 물러난다.
+ *
+ * 고정 좌표는 시드 5명(한 줄)에 맞춰져 있었다. 채용해서 뒷줄이 생기면 그 직원들은
+ * 화면 위로 밀려 이름표만 보이고 아바타는 잘린다 — "채용했는데 안 보인다"가 된다.
+ *
+ * 책상 좌표(서버가 정한다)의 실제 퍼짐을 재서 거리를 정한다. 인원수로 계산하면
+ * 배치 규칙이 바뀔 때마다 여기도 같이 고쳐야 한다.
+ */
+// 물러나는 양을 좁게 잡는다. 방보다 넓게 잡으면 벽 바깥 여백이 화면을 먹고
+// 사무실이 작은 모형처럼 보인다 — 뒷줄이 화면에 들어오는 만큼만 뺀다.
+const CAMERA_DEPTH_PULL = 0.08;
+const CAMERA_WIDTH_PULL = 0.06;
+const CAMERA_MAX_DISTANCE_SCALE = 1.35;
+/** 기준 배치의 좌우 폭. 이보다 넓어질 때만 추가로 물러난다. */
+const BASELINE_SPREAD_X = 4;
+
+function framingFor(desks: readonly { x: number; z: number }[]): {
+  position: { x: number; y: number; z: number };
+  target: { x: number; y: number; z: number };
+} {
+  if (desks.length === 0) return { position: CAMERA_POSITION, target: CAMERA_TARGET };
+
+  const spreadX = Math.max(...desks.map((desk) => Math.abs(desk.x)));
+  const depth = Math.max(...desks.map((desk) => -desk.z), 0);
+  const scale = Math.min(
+    1 + depth * CAMERA_DEPTH_PULL + Math.max(spreadX - BASELINE_SPREAD_X, 0) * CAMERA_WIDTH_PULL,
+    CAMERA_MAX_DISTANCE_SCALE,
+  );
+  return {
+    position: {
+      x: CAMERA_POSITION.x,
+      y: CAMERA_POSITION.y * scale,
+      z: CAMERA_POSITION.z * scale,
+    },
+    // 뒷줄이 생기면 시선도 안쪽으로 옮긴다. 안 그러면 앞줄만 화면 중앙에 온다.
+    target: { ...CAMERA_TARGET, z: CAMERA_TARGET.z - depth / 2 },
+  };
+}
+
 /** 페이지 배경(--surface-void)과 이어지는 따뜻한 종이색. */
 const BACKGROUND = 0xe6e1d7;
 
@@ -130,6 +170,7 @@ export class OfficeScene {
   /** 스냅샷의 직원 목록에 씬을 맞춘다. 추가·삭제·상태 갱신을 모두 처리한다. */
   syncEmployees(employees: readonly Employee[]): void {
     const seen = new Set<string>();
+    this.fitCamera(employees.map((employee) => employee.desk));
 
     for (const employee of employees) {
       seen.add(employee.id);
@@ -161,6 +202,13 @@ export class OfficeScene {
         this.workstations.delete(employeeId);
       }
     }
+  }
+
+  /** 책상이 전부 화면에 들어오도록 카메라를 옮긴다. */
+  private fitCamera(desks: readonly { x: number; z: number }[]): void {
+    const { position, target } = framingFor(desks);
+    this.camera.position.set(position.x, position.y, position.z);
+    this.camera.lookAt(target.x, target.y, target.z);
   }
 
   attachLabel(employeeId: string, label: CSS2DObject): void {

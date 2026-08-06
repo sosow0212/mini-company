@@ -45,6 +45,9 @@ class InMemoryEmployeeRepository:
         self._by_id[_require_id(stored)] = stored
         return stored
 
+    async def delete(self, employee_id: PydanticObjectId) -> bool:
+        return self._by_id.pop(employee_id, None) is not None
+
 
 def _require_id(employee: Employee) -> PydanticObjectId:
     if employee.id is None:
