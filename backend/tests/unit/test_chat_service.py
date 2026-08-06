@@ -12,6 +12,7 @@ from decimal import Decimal
 import pytest
 from beanie import PydanticObjectId
 
+from src.chat.prompts import NOT_FOUND_ANSWER
 from src.chat.service import ChatService
 from src.knowledge.chunking.registry import build_chunker_registry
 from src.knowledge.constants import ContentType, SourceType
@@ -209,6 +210,28 @@ async def test_conversation_keeps_history_across_turns() -> None:
     conversation = await harness.service.get_conversation(PydanticObjectId(conversation_id))
 
     assert len(conversation.messages) == 4
+
+
+async def test_refusal_is_not_replayed_into_the_next_prompt() -> None:
+    """거절 문구는 LLM이 쓴 게 아니라 서버가 넣은 고정 문구다.
+
+    이력에 남기면 모델이 그걸 이 대화의 답변 형식으로 읽고, 근거가 충분한 다음
+    질문에도 "자료에 없습니다"를 따라 쓴다(로컬 10.8B 모델에서 실제로 재현됐다).
+    """
+    harness = Harness()
+    conversation_id = (await harness.service.start_conversation()).id
+
+    # 자료가 하나도 없을 때 물으면 LLM을 부르지 않고 거절한다.
+    refused = await harness.ask("아직 없는 주제", conversation_id=conversation_id)
+    assert refused.message.grounded is False
+
+    await harness.ingest("메모리 반도체 수요가 회복되고 있다.")
+    await harness.ask("메모리 반도체", conversation_id=conversation_id)
+
+    sent = [message.content for message in harness.provider.received_messages[-1]]
+    assert not any(NOT_FOUND_ANSWER in content for content in sent)
+    # 짝이 되는 질문도 함께 빠져야 한다. 답 없는 질문만 남으면 그것대로 어색하다.
+    assert not any("아직 없는 주제" in content for content in sent)
 
 
 # ─── 대화 관리 ─────────────────────────────────────────────────

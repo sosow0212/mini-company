@@ -28,12 +28,15 @@ class FakeLlmProvider:
         # 특정 모델만 실패시켜 폴백 경로를 만든다.
         self._fail_models = fail_models or set()
         self.calls: list[LlmProfile] = []
+        # 프로파일과 따로 둔다. `calls`는 이미 여러 테스트가 프로파일 목록으로 읽고 있다.
+        self.received_messages: list[list[Message]] = []
 
     def is_configured(self) -> bool:
         return self._configured
 
     async def complete(self, profile: LlmProfile, messages: list[Message]) -> LlmResult:
         self.calls.append(profile)
+        self.received_messages.append(list(messages))
         if profile.model in self._fail_models:
             raise LlmCallFailed(f"{profile.model} 호출 실패(의도된 실패)")
         return LlmResult(content=self._content, usage=self._usage)

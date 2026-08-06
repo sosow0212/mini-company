@@ -7,6 +7,7 @@ from src.config import Settings
 from src.llm.providers.anthropic import AnthropicProvider
 from src.llm.providers.base import LlmProvider
 from src.llm.providers.minimax import MiniMaxProvider
+from src.llm.providers.ollama import OllamaProvider
 
 
 def build_registry(settings: Settings) -> dict[str, LlmProvider]:
@@ -21,6 +22,12 @@ def build_registry(settings: Settings) -> dict[str, LlmProvider]:
             api_key=settings.anthropic_api_key,
             base_url=settings.anthropic_base_url,
             timeout_seconds=settings.llm_timeout_seconds,
+        ),
+        # 로컬 모델은 타임아웃이 다르다 — 공용 값(60초)으로는 긴 답변이 늘 잘린다.
+        OllamaProvider(
+            enabled=settings.ollama_enabled,
+            base_url=settings.ollama_base_url,
+            timeout_seconds=settings.ollama_timeout_seconds,
         ),
     ]
     return {provider.name: provider for provider in providers}
