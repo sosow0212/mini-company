@@ -1,0 +1,29 @@
+# 호스트 compose의 DB를 가리킨다.
+#
+# `host.docker.internal`은 Docker Desktop이 컨테이너 안에서 호스트를 가리키도록 제공하는
+# 이름이다. kind 노드도 컨테이너이므로 그 안의 Pod에서 해석된다 —
+# **Docker Desktop 전용이고 리눅스 순수 Docker에서는 동작하지 않는다.**
+# 그 경우 `extraHosts`나 노드 IP를 써야 한다.
+#
+# 포트가 27018인 이유: 호스트에 로컬 설치 mongod가 27017을 점유하고 있으면 그쪽에
+# 조용히 붙는다(그 서버는 replica set이 아니라서 트랜잭션이 없다).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  template:
+    spec:
+      containers:
+        - name: backend
+          env:
+            - name: MONGO_URI
+              value: mongodb://host.docker.internal:27018/?directConnection=true
+            - name: MILVUS_URI
+              value: http://host.docker.internal:19530
+            - name: MILVUS_HEALTH_URL
+              value: http://host.docker.internal:9091/healthz
+            # Phase 10에서는 스케줄러를 띄우지 않는다. 회수 루프만 돌려 무인 운영의
+            # 절반(자동 복구)을 확인한다.
+            - name: EVENT_BUS
+              value: memory

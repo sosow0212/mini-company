@@ -1,0 +1,23 @@
+# kind 클러스터 정의. `make k8s-up`이 이 파일로 클러스터를 만든다.
+#
+# 단일 노드다. 멀티 노드는 배울 게 늘지만(스케줄링·affinity) 로컬 리소스를 두 배로 쓰고,
+# 이 프로젝트에서 확인할 것(replica 2 + EventBus, Ingress, StatefulSet)은 단일 노드에서도
+# 전부 재현된다 — replica 2도 같은 노드에 뜨면서 프로세스는 분리되므로 ADR-008 검증에 충분하다.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: mini-company
+nodes:
+  - role: control-plane
+    # ingress-nginx가 이 노드를 고르게 하는 표시. 없으면 Pod가 Pending에 머문다.
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      # 호스트 → 노드. Ingress를 브라우저에서 바로 열려면 이 매핑이 필요하다.
+      # 8080을 쓰는 이유: 80은 권한이 필요하고, compose의 5173/8000과도 겹치지 않는다.
+      - containerPort: 80
+        hostPort: 8080
+        protocol: TCP

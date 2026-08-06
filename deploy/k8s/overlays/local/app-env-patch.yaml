@@ -1,0 +1,18 @@
+# Phase 10의 kind는 개발자 노트북이다. base는 `staging`을 기본값으로 두지만
+# 여기서는 `local`로 내린다.
+#
+# 이 값이 바꾸는 것(§8.2 gateway.py `strict_keys=settings.app_env != "local"`):
+#   staging/prod — LLM 프로파일의 프로바이더 키가 하나라도 없으면 **부팅을 거부**한다.
+#                  런타임 첫 호출에서 발견하면 이미 늦기 때문이다.
+#   local        — 경고만 남기고 뜬다. 키가 없는 프로파일은 호출할 수 없지만,
+#                  프론트·원장·지식 작업은 LLM 없이도 진행할 수 있다.
+#
+# 즉 여기서 `local`을 쓰는 이유는 검증을 피하려는 게 아니라, Phase 10이 확인하려는
+# 것이 "앱이 K8s에서 뜨는가"이지 "LLM 키가 갖춰졌는가"가 아니기 때문이다.
+# overlays/prod는 `staging`을 유지한다 — 거기서는 키가 없으면 뜨지 않는 편이 옳다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+data:
+  APP_ENV: "local"

@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels: { app: backend }
+spec:
+  # replica 수는 overlay가 정한다. base에 2를 두면 EventBus=memory인 로컬에서
+  # 이벤트 유실이 기본 동작이 된다(ADR-008).
+  selector:
+    matchLabels: { app: backend }
+  template:
+    metadata:
+      labels: { app: backend }
+    spec:
+      # SHUTDOWN_GRACE_SECONDS(20)보다 커야 한다. 짧으면 K8s가 SIGKILL로 끊어
+      # graceful shutdown 설정이 무의미해진다(Phase 9).
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+      containers:
+        - name: backend
+          image: mini-company/backend:0.1.0
+          # kind에 `kind load docker-image`로 넣은 이미지를 쓴다. Always면 레지스트리를
+          # 찾다가 ImagePullBackOff가 된다.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 8000 }
+          envFrom:
+            - configMapRef: { name: backend-config }
+            - secretRef: { name: backend-secret }
+          # 주소는 overlay가 덮는다(로컬은 호스트 compose, prod는 클러스터 안 서비스).
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          # 부팅이 Mongo·Milvus 접속을 요구하므로 startupProbe로 그 시간을 준다.
+          # 이게 없으면 느린 부팅을 liveness가 실패로 읽고 재시작 폭풍이 된다.
+          startupProbe:
+            httpGet: { path: /health/live, port: http }
+            periodSeconds: 3
+            failureThreshold: 40 # 최대 2분
+          # liveness에는 의존성 검사를 넣지 않는다. 실패는 **재시작**이므로,
+          # DB가 잠깐 느려지면 전체 Pod 재시작 폭풍으로 증폭된다(§10.1).
+          livenessProbe:
+            httpGet: { path: /health/live, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          # readiness 실패는 트래픽 제외일 뿐이라 여기서 의존성을 본다.
+          readinessProbe:
+            httpGet: { path: /health/ready, port: http }
+            periodSeconds: 10
+            failureThreshold: 2
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+spec:
+  selector: { app: backend }
+  ports:
+    - { name: http, port: 8000, targetPort: http }

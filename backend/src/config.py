@@ -98,6 +98,23 @@ class Settings(BaseSettings):
     chat_llm_profile: str = "reasoner"
     chat_history_limit: int = 10
 
+    @model_validator(mode="before")
+    @classmethod
+    def _blank_means_unset(cls, values: object) -> object:
+        """빈 문자열은 "설정하지 않음"으로 본다.
+
+        `.env`에 `CHUNKING_STRATEGY=`라고 쓰거나 ConfigMap에 `CHUNKING_STRATEGY: ""`를
+        두면 환경변수가 **빈 값으로 존재**한다. 그러면 pydantic 기본값이 적용되지 않고
+        `""`가 그대로 들어와, 기본값을 쓰려던 의도가 조용히 뒤집힌다.
+        (실제로 K8s 배포에서 `CHUNKING_STRATEGY=''가 등록되지 않았다`로 부팅이 막혔다.)
+
+        환경변수에는 "빈 문자열"과 "미설정"을 구분할 방법이 없다. 이 프로젝트에는 빈
+        문자열이 유효한 값인 설정이 없으므로, 여기서 미설정으로 통일한다.
+        """
+        if not isinstance(values, dict):
+            return values
+        return {key: value for key, value in values.items() if value != ""}
+
     @model_validator(mode="after")
     def _reject_default_worker_key_outside_local(self) -> "Settings":
         # 블루프린트 §15 부팅 검증 6: local이 아닌데 기본 키면 즉시 실패한다.

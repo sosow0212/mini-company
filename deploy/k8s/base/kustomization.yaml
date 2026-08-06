@@ -1,0 +1,23 @@
+# base는 **환경과 무관한 것**만 담는다. replica 수, DB 주소, 리소스 상한처럼
+# 환경마다 달라지는 값은 overlay가 덮는다.
+#
+# secret.example.yaml은 의도적으로 제외한다 — 예시를 그대로 적용하면 `change-me` 키가
+# 배포된다. 실제 Secret은 `make k8s-secret`이 만든다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: mini-company
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - backend.yaml
+  - frontend.yaml
+  - ingress.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: mini-company
+    # selector에는 넣지 않는다. Deployment의 selector는 불변 필드라서, 나중에 라벨을
+    # 바꾸면 apply가 거부되고 리소스를 지워야 한다.
+    includeSelectors: false

@@ -1,0 +1,26 @@
+# 클러스터 안 DB를 가리킨다.
+#
+# `mongo-0.mongo`는 StatefulSet Pod의 안정적 DNS 이름이다(headless Service 덕분).
+# `?directConnection=true`가 필요한 이유: rs 멤버가 이 이름으로 등록되어 있고,
+# `replicaSet=rs0`로 붙으면 드라이버가 멤버 목록을 다시 해석하며 한 홉을 더 돈다.
+# 단일 멤버에서는 직결이 단순하고, 직결이어도 rs 멤버이므로 트랜잭션은 그대로 쓸 수 있다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  template:
+    spec:
+      containers:
+        - name: backend
+          env:
+            - name: MONGO_URI
+              value: mongodb://mongo-0.mongo:27017/?directConnection=true
+            - name: MILVUS_URI
+              value: http://milvus:19530
+            - name: MILVUS_HEALTH_URL
+              value: http://milvus:9091/healthz
+            # Phase 12에서 redis로 바꾼다. 지금 바꾸면 부팅이 거부된다 —
+            # factory.py가 미구현을 조용히 memory로 떨어뜨리지 않고 실패시킨다.
+            - name: EVENT_BUS
+              value: memory

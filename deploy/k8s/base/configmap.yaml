@@ -1,0 +1,47 @@
+# 비밀이 아닌 설정. `.env.example`에서 `[SECRET]` 표시가 **없는** 항목이 여기로 온다 —
+# 그 표시가 Secret/ConfigMap 분류의 유일한 근거다(§15).
+#
+# 주소(MONGO_URI·MILVUS_URI)는 환경마다 다르므로 overlay가 덮는다. 여기 두는 것은
+# 환경과 무관한 정책값이다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+data:
+  APP_ENV: "staging"
+  LOG_LEVEL: "INFO"
+  # 컨테이너 로그는 수집기가 파싱한다. console은 로컬 전용이다(§10.1).
+  LOG_FORMAT: "json"
+
+  MONGO_DB: "mini_company"
+  MILVUS_COLLECTION: "knowledge_chunks"
+
+  # LLM 카탈로그·단가. 코드의 DEFAULT_PROFILES를 쓰려면 비워 둔다.
+  # 단가는 자주 바뀌므로 여기서 관리한다 — 코드 배포 없이 바꿀 수 있다.
+  LLM_PROFILES_JSON: ""
+  LLM_PRICING_JSON: '{"MiniMax-M2.7":{"in":0.30,"out":1.20},"MiniMax-M3":{"in":0.30,"out":1.20}}'
+  LLM_TIMEOUT_SECONDS: "60"
+  USD_KRW_RATE: "1380"
+  LLM_DAILY_COST_LIMIT_KRW: "5000"
+
+  # 임베딩. 키 없이 파이프라인을 돌리려면 hashing, 실제 검색 품질이 필요하면 openai.
+  EMBEDDING_PROVIDER: "hashing"
+  EMBEDDING_MODEL: "text-embedding-3-small"
+  EMBEDDING_DIM: "1536"
+
+  RAG_TOP_K: "8"
+  # hashing 임베딩에서는 0.35가 너무 높다(조사가 붙으면 유사도가 급락한다).
+  RAG_SCORE_THRESHOLD: "0.1"
+  CHUNK_TARGET_TOKENS: "500"
+  CHUNK_OVERLAP_TOKENS: "80"
+  # paragraph | fixed_size | heading. 문서 종류에 따라 바꾼다 —
+  # 목차가 뚜렷한 PDF·HTML은 heading, 구조가 없는 수집 텍스트는 paragraph.
+  CHUNKING_STRATEGY: "paragraph"
+
+  CHAT_LLM_PROFILE: "reasoner"
+  CHAT_HISTORY_LIMIT: "10"
+
+  # 무인 운영(Phase 9). replica가 여럿이어도 상태 전이 검증이 중복 회수를 막는다.
+  STALE_TASK_TIMEOUT_SECONDS: "900"
+  REAPER_INTERVAL_SECONDS: "120"
+  SHUTDOWN_GRACE_SECONDS: "20"

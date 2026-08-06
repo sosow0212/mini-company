@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels: { app: frontend }
+spec:
+  selector:
+    matchLabels: { app: frontend }
+  template:
+    metadata:
+      labels: { app: frontend }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # nginx-unprivileged의 기본 UID. backend(10001)와 다르다 — 이미지가 정한 값이라
+        # 임의로 바꾸면 nginx가 자기 임시 디렉토리에 쓸 수 없다.
+        runAsUser: 101
+        runAsGroup: 101
+      containers:
+        - name: nginx
+          image: mini-company/frontend:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 8080 }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          # readOnlyRootFilesystem을 켜지 않는다 — nginx가 /var/cache/nginx와
+          # /tmp에 쓴다. 켜려면 emptyDir 마운트가 여러 개 필요하고, 정적 파일
+          # 서버에서 얻는 보안 이득이 그 복잡도만큼 크지 않다.
+          # localhost가 아니라 127.0.0.1이다 — 컨테이너 안에서 localhost는 ::1로
+          # 먼저 해석되고 nginx는 IPv4만 listen하므로 연결이 거부된다.
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 20m, memory: 32Mi }
+            limits: { memory: 128Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+spec:
+  selector: { app: frontend }
+  ports:
+    - { name: http, port: 80, targetPort: http }

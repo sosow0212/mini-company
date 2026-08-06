@@ -1,0 +1,34 @@
+# 단일 진입점. compose의 nginx가 하던 역할을 Ingress가 대신한다.
+#
+# **경로 순서가 중요하다.** `/api`가 `/`보다 먼저 와야 백엔드로 간다 — ingress-nginx는
+# 가장 긴 prefix를 먼저 매칭하므로 실제로는 순서와 무관하지만, 읽는 사람에게 의도를
+# 보이려고 위에 둔다.
+#
+# 프론트가 `/api`를 같은 출처로 부르므로 CORS가 필요 없다. compose(nginx proxy_pass)와
+# 같은 구조라 프론트 코드는 환경을 구분하지 않는다.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mini-company
+  annotations:
+    # WebSocket(/api/v1/ws/office)이 이벤트 없이 조용한 구간에서 끊기지 않게 한다.
+    # ingress-nginx는 기본 60초에서 업스트림을 끊는다.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port: { number: 8000 }
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port: { number: 80 }

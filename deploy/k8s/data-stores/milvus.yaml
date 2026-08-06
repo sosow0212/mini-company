@@ -1,0 +1,168 @@
+# Milvus standalone + 의존 컴포넌트(etcd 메타스토어, minio 오브젝트스토어).
+#
+# 세 개를 다 띄우는 이유: Milvus standalone도 메타와 오브젝트 저장소를 외부에 요구한다.
+# compose와 같은 구성이라 그쪽 설정을 그대로 번역했다.
+#
+# **리소스가 무겁다**(합계 요청 ~1.3Gi). kind 단일 노드에서 Docker Desktop 메모리가
+# 4Gi 미만이면 Pod가 Pending에 머문다 — 그 경우 Docker Desktop 메모리를 올리거나
+# Phase 10(overlays/local, DB는 호스트 compose)에 머무는 편이 낫다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: etcd
+spec:
+  clusterIP: None
+  selector: { app: etcd }
+  ports:
+    - { name: client, port: 2379 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: etcd
+spec:
+  serviceName: etcd
+  replicas: 1
+  selector:
+    matchLabels: { app: etcd }
+  template:
+    metadata:
+      labels: { app: etcd }
+    spec:
+      containers:
+        - name: etcd
+          image: quay.io/coreos/etcd:v3.5.18
+          command:
+            - etcd
+            - --advertise-client-urls=http://etcd-0.etcd:2379
+            - --listen-client-urls=http://0.0.0.0:2379
+            - --data-dir=/etcd
+          env:
+            - { name: ETCD_AUTO_COMPACTION_MODE, value: revision }
+            - { name: ETCD_AUTO_COMPACTION_RETENTION, value: "1000" }
+            - { name: ETCD_QUOTA_BACKEND_BYTES, value: "4294967296" }
+          ports:
+            - { name: client, containerPort: 2379 }
+          volumeMounts:
+            - { name: data, mountPath: /etcd }
+          readinessProbe:
+            exec: { command: ["etcdctl", "endpoint", "health"] }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 512Mi }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 1Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+spec:
+  selector: { app: minio }
+  ports:
+    - { name: api, port: 9000 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+spec:
+  serviceName: minio
+  replicas: 1
+  selector:
+    matchLabels: { app: minio }
+  template:
+    metadata:
+      labels: { app: minio }
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+          args: ["server", "/minio_data"]
+          env:
+            # 개발용 고정 자격증명이다. Milvus만 접근하고 외부로 노출되지 않지만,
+            # 실전이라면 Secret으로 빼야 한다.
+            - { name: MINIO_ACCESS_KEY, value: minioadmin }
+            - { name: MINIO_SECRET_KEY, value: minioadmin }
+          ports:
+            - { name: api, containerPort: 9000 }
+          volumeMounts:
+            - { name: data, mountPath: /minio_data }
+          readinessProbe:
+            httpGet: { path: /minio/health/live, port: api }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 512Mi }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 2Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: milvus
+spec:
+  selector: { app: milvus }
+  ports:
+    - { name: grpc, port: 19530 }
+    - { name: metrics, port: 9091 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: milvus
+spec:
+  serviceName: milvus
+  replicas: 1
+  selector:
+    matchLabels: { app: milvus }
+  template:
+    metadata:
+      labels: { app: milvus }
+    spec:
+      # K8s는 같은 네임스페이스의 Service마다 도커 링크 시절의 환경변수를 Pod에 주입한다.
+      # `minio` Service가 있으면 `MINIO_PORT=tcp://10.96.x.x:9000`이 들어오는데, Milvus는
+      # `MINIO_PORT`를 숫자로 읽는 자기 설정 키로 취급한다. 파싱에 실패해 0이 되고:
+      #   panic: open wal manager failed, Get "http://minio:0/a-bucket/?location="
+      # 주입을 끄는 편이 개별 변수를 덮어쓰는 것보다 낫다 — ETCD_* 등 같은 충돌이
+      # 서비스 이름을 추가할 때마다 새로 생긴다.
+      enableServiceLinks: false
+      containers:
+        - name: milvus
+          image: milvusdb/milvus:v2.6.9
+          args: ["milvus", "run", "standalone"]
+          env:
+            - { name: ETCD_ENDPOINTS, value: "etcd-0.etcd:2379" }
+            - { name: MINIO_ADDRESS, value: "minio:9000" }
+            - { name: MQ_TYPE, value: woodpecker }
+          ports:
+            - { name: grpc, containerPort: 19530 }
+            - { name: metrics, containerPort: 9091 }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/milvus }
+          # Milvus는 부팅이 느리다(1분 가까이). startupProbe로 그 시간을 주지 않으면
+          # liveness가 먼저 실패해 재시작을 반복한다.
+          startupProbe:
+            httpGet: { path: /healthz, port: metrics }
+            periodSeconds: 5
+            failureThreshold: 40
+          readinessProbe:
+            httpGet: { path: /healthz, port: metrics }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 200m, memory: 1Gi }
+            limits: { memory: 2Gi }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 4Gi } }
