@@ -1,0 +1,15 @@
+# 클러스터 안에서 운영하는 스토리지. Phase 11에서 호스트 compose를 대체한다.
+#
+# base(앱)와 분리한 이유: Phase 10은 앱만 올리고 DB는 호스트에 남긴다. 두 관심사를 한
+# base에 두면 Phase 10에서 DB 리소스를 하나하나 빼야 하고, 그 목록이 곧 드리프트한다.
+#
+# 실전이라면 관리형 서비스(Atlas·Zilliz)를 쓴다. 직접 운영은 학습 목적이다(§10.2).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# overlay 없이 직접 apply해도 default로 새지 않도록 여기서 고정한다.
+namespace: mini-company
+
+resources:
+  - mongo.yaml
+  - milvus.yaml

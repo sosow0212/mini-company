@@ -1,0 +1,27 @@
+# Phase 11 — DB까지 클러스터 안으로. "프로덕션에 가까운 구성"이라는 뜻이고,
+# 검증은 kind에서 한다(실제 프로덕션 클러스터는 이 overlay를 그대로 쓰거나 복제한다).
+#
+# base와의 차이:
+#   - StatefulSet DB(mongo/etcd/minio/milvus)와 rs 초기화 Job을 포함한다
+#   - CronJob 워커를 포함한다 — 로컬 APScheduler를 플랫폼 스케줄러로 대체
+#   - DB 주소가 클러스터 내부 서비스명을 가리킨다
+#
+# **replica는 여전히 1이다.** EVENT_BUS=memory에서 2로 올리면 어떤 클라이언트는 WS
+# 이벤트를 받지 못한다(ADR-008). replica 2 + RedisEventBus는 Phase 12다 —
+# 순서를 지키는 편이 낫다. 지금 2로 올리면 "가끔 화면이 안 갱신되는" 버그가 기본 동작이 된다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: mini-company
+
+resources:
+  - ../../base
+  - ../../data-stores
+  - ../../jobs
+
+replicas:
+  - { name: backend, count: 1 }
+  - { name: frontend, count: 1 }
+
+patches:
+  - path: cluster-db-patch.yaml

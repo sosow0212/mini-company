@@ -1,0 +1,55 @@
+# 클러스터 DB 초기화 — 인덱스 생성 + 직원 시드.
+#
+# 왜 앱이 부팅할 때 하지 않는가:
+#   replica가 여럿이면 같은 인덱스를 동시에 만들려 들고, 부팅이 DB 쓰기에 묶이면
+#   readiness가 늦어진다. 스키마 변경은 배포와 분리된 단계로 두는 편이 낫다.
+#
+# 왜 인덱스가 선택이 아닌가:
+#   unique 인덱스가 데이터 무결성의 일부다 — 원장의 `reverses_id` 유일성이 없으면
+#   같은 역분개가 두 번 들어가 잔액이 틀어진다(ADR-003). 앱 코드는 그 제약이 DB에
+#   있다고 가정한다.
+#
+# 두 스크립트 모두 멱등이라 몇 번 돌려도 안전하다. Job은 Mongo가 아직 준비되지
+# 않았으면 실패하는데, OnFailure로 재시도하면 그대로 따라잡는다.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bootstrap
+spec:
+  # 완료된 Job은 spec이 거의 전부 불변이다. 남겨두면 이미지 태그를 올린 다음
+  # 배포가 `field is immutable`로 거부된다. 한 시간이면 로그를 확인하기에 충분하고,
+  # 그 뒤 사라지면 재배포가 새 Job을 만든다.
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+      containers:
+        - name: bootstrap
+          image: mini-company/backend:0.1.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - python -m src.scripts.create_indexes && python -m src.scripts.seed
+          envFrom:
+            - configMapRef: { name: backend-config }
+            - secretRef: { name: backend-secret }
+          env:
+            # overlay의 Deployment 패치는 이 Job에 닿지 않는다. 클러스터 DB 주소를
+            # 여기서 직접 준다 — data-stores와 함께 배포되는 리소스이므로 고정해도 된다.
+            - name: MONGO_URI
+              value: mongodb://mongo-0.mongo:27017/?directConnection=true
+            - name: MILVUS_URI
+              value: http://milvus:19530
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 512Mi }

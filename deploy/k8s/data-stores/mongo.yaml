@@ -1,0 +1,108 @@
+# Mongo 단일 노드 replica set.
+#
+# **StatefulSet인 이유**는 이름과 저장소가 안정적이어야 하기 때문이다. Deployment는 Pod
+# 이름이 매번 바뀌는데, replica set 멤버는 호스트명으로 등록되므로(`mongo-0.mongo`) 이름이
+# 바뀌면 rs 설정이 깨진다. PVC도 Pod마다 하나씩 필요하다.
+#
+# standalone이 아니라 replica set인 이유: 트랜잭션과 change stream을 쓸 수 없다(§9.2).
+# 실전이라면 관리형 서비스를 쓰지만, 학습 목적이면 직접 운영이 배울 게 많다(§10.2).
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo
+spec:
+  # headless. StatefulSet Pod에 `mongo-0.mongo`로 접근하려면 clusterIP가 없어야 한다 —
+  # rs 멤버 주소를 그 이름으로 등록하므로 이게 필수다.
+  clusterIP: None
+  # 없으면 부트스트랩이 교착한다:
+  #   readiness가 `rs.status().ok`를 요구한다 → rs 초기화 전이라 Pod는 not ready →
+  #   headless Service는 not ready Pod의 DNS를 등록하지 않는다 →
+  #   mongo-init이 `mongo-0.mongo`를 해석하지 못해 영원히 기다린다 → rs는 초기화되지 않는다.
+  # rs 부트스트랩이 필요한 StatefulSet에서 이 옵션이 표준인 이유가 이것이다. readiness를
+  # ping으로 낮춰도 교착은 풀리지만, 그러면 rs가 없는 mongo가 ready로 보여서 앱이
+  # 트랜잭션 단계에서 실패한다 — 문제를 더 나쁜 자리로 옮기는 셈이다.
+  publishNotReadyAddresses: true
+  selector: { app: mongo }
+  ports:
+    - { name: mongo, port: 27017 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongo
+spec:
+  serviceName: mongo
+  replicas: 1
+  selector:
+    matchLabels: { app: mongo }
+  template:
+    metadata:
+      labels: { app: mongo }
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: mongo
+          image: mongo:7.0
+          args: ["--replSet", "rs0", "--bind_ip_all"]
+          ports:
+            - { name: mongo, containerPort: 27017 }
+          volumeMounts:
+            - { name: data, mountPath: /data/db }
+          # rs.status()는 초기화 전에 예외를 던진다. 즉 이 체크 통과는 rs 초기화까지
+          # 끝났다는 뜻이다 — compose의 healthcheck와 같은 규칙이다.
+          readinessProbe:
+            exec:
+              command: ["mongosh", "--quiet", "--eval", "rs.status().ok"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            exec:
+              command: ["mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests: { storage: 2Gi }
+---
+# rs.initiate()를 한 번 실행하는 Job. compose의 mongo-init과 같은 역할이다.
+#
+# **Job인 이유**: 한 번 성공하면 끝나는 작업이다. Deployment로 두면 계속 재시작하고,
+# initContainer로 두면 Mongo가 뜨기 전에 실행된다(같은 Pod에서 순서가 보장되므로).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongo-init
+  annotations:
+    # 이미 초기화된 클러스터에 다시 apply해도 안전하다 — 아래 스크립트가 멱등이다.
+    kustomize.toolkit.fluxcd.io/force: "true"
+spec:
+  # 완료된 Job은 spec이 거의 전부 불변이라, 남겨두면 다음 배포가 거부될 수 있다.
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          image: mongo:7.0
+          command:
+            - bash
+            - -c
+            - |
+              until mongosh --host mongo-0.mongo --quiet --eval 'db.adminCommand("ping").ok' >/dev/null 2>&1; do
+                echo "mongo를 기다린다"; sleep 2
+              done
+              mongosh --host mongo-0.mongo --quiet --eval '
+                try { rs.status().ok; print("이미 초기화됨") }
+                catch (e) {
+                  rs.initiate({_id: "rs0", members: [{_id: 0, host: "mongo-0.mongo:27017"}]});
+                  print("rs 초기화 완료")
+                }
+              '

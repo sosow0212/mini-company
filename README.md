@@ -22,6 +22,9 @@ AI 직원(에이전트)이 수행한 작업을 3D 오피스로 시각화하고, 
 | 7     | `knowledge` 적재(HTML/PDF/MD/줄글) + 메타 추출 + 청킹 전략 3종 + Milvus 검색 | 완료 |
 | 8     | `chat` RAG 챗봇 + 출처 인용 + 원장 툴                              | 완료 |
 | 9     | 스케줄러, 멈춘 작업 자동 회수, 연결 재시도, JSON 로깅, graceful shutdown     | 완료 |
+| 10    | kind 클러스터에 앱 배포(DB는 호스트 compose), Ingress·프로브·kustomize      | 완료 |
+| 11    | Mongo/Milvus StatefulSet 이전, Secret/ConfigMap 분리, 키 로테이션, CronJob | 완료 |
+| 12    | Redis EventBus + backend replica 2, HPA, TLS                | 예정 |
 
 ## 실행
 
@@ -358,12 +361,65 @@ replica에 붙는다 — 닫지 않고 죽으면 네트워크 오류로 보고 �
 스케줄러는 **SIGTERM 핸들러를 직접 등록한다.** asyncio는 기본으로 설치하지 않아서, 없으면
 프로세스가 즉시 죽고 진행 중 잡이 항상 잘린다(컨테이너가 보내는 신호가 바로 SIGTERM이다).
 
+## Kubernetes (Phase 10~11)
+
+두 단계로 나눠 올린다. 앱과 스토리지를 동시에 옮기면 문제가 났을 때 원인이 어느 쪽인지
+알 수 없다(§10.3).
+
+```bash
+make k8s-up                       # kind 클러스터 + ingress-nginx
+
+# Phase 10 — 앱만 클러스터, DB는 호스트 compose
+make up                           # 호스트 mongo:27018 / milvus:19530
+make k8s-images && make k8s-secret
+make k8s-deploy
+curl localhost:8080/api/v1/office/snapshot
+
+# Phase 11 — DB까지 클러스터 안으로
+make k8s-deploy-full              # StatefulSet + bootstrap Job + CronJob
+make k8s-status
+make k8s-rotate-key               # 무중단 키 교체 실습
+make k8s-down
+```
+
+| 디렉토리                | 내용                                                    |
+|---------------------|-------------------------------------------------------|
+| `base/`             | 환경 무관 — Deployment, Service, Ingress, ConfigMap        |
+| `data-stores/`      | Mongo / etcd / minio / Milvus StatefulSet + rs 초기화 Job |
+| `jobs/`             | bootstrap(인덱스+시드) Job, collector CronJob               |
+| `overlays/local/`   | Phase 10 — 호스트 DB 주소, `APP_ENV=local`                 |
+| `overlays/prod/`    | Phase 11 — 클러스터 DB 주소, `APP_ENV=staging`              |
+
+`APP_ENV`가 overlay마다 다른 이유: `staging`/`prod`에서는 LLM 프로파일의 프로바이더 키가
+하나라도 없으면 **부팅을 거부한다**(§8.2). 런타임 첫 호출에서 발견하면 이미 늦기 때문이다.
+Phase 10이 확인하려는 것은 "앱이 K8s에서 뜨는가"이지 "키가 갖춰졌는가"가 아니라서 거기서만
+`local`을 쓴다. **`overlays/prod`를 배포하려면 `.env`에 실제 LLM 키가 있어야 한다** —
+`make k8s-secret`이 거기서 읽어 Secret에 넣는다.
+
+### 걸려 넘어지기 쉬운 곳
+
+- **기업 프록시가 TLS를 가로채면** 노드 안 containerd가 레지스트리 인증서를 검증하지
+  못해 이미지 pull이 전부 실패한다(`x509: certificate signed by unknown authority`).
+  호스트 키체인에는 그 CA가 있어서 `docker pull`은 멀쩡하다 — 그래서 원인을 찾기 어렵다.
+  `make k8s-up`이 `trust-proxy-ca.sh`로 노드에 CA를 심는다.
+- **Mongo rs 부트스트랩은 교착하기 쉽다.** readiness가 `rs.status()`를 요구하는데 rs
+  초기화 전에는 not ready고, headless Service는 not ready Pod의 DNS를 등록하지 않는다.
+  `publishNotReadyAddresses: true`가 그 고리를 끊는다.
+- **`enableServiceLinks`를 끄지 않으면 Milvus가 죽는다.** K8s가 `minio` Service 때문에
+  주입하는 `MINIO_PORT=tcp://IP:9000`을 Milvus가 자기 설정 키로 읽어 포트가 0이 된다.
+- **ConfigMap에 빈 문자열을 두면 기본값이 사라진다.** `.env`와 달리 환경변수가 "빈 값으로
+  존재"하게 되기 때문이다. `Settings`가 빈 문자열을 미설정으로 정규화해 이 함정을 막는다.
+
+replica는 아직 1이다. `EVENT_BUS=memory`에서 2로 올리면 어떤 클라이언트는 WS 이벤트를
+받지 못한다(ADR-008). replica 2 + `RedisEventBus`는 Phase 12다.
+
 ## 포트
 
 | 포트    | 서비스                                          |
 |-------|----------------------------------------------|
 | 5173  | frontend (nginx / vite dev)                  |
 | 8000  | backend                                      |
+| 8080  | kind Ingress (`/`→프론트, `/api`→백엔드)            |
 | 27018 | mongo (replica set `rs0`) — 27017이 아닌 이유는 아래 |
 | 19530 | milvus gRPC                                  |
 | 9091  | milvus `/healthz`                            |
