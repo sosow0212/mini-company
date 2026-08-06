@@ -26,6 +26,16 @@ class EventBus(Protocol):
 
     def subscribe(self, handler: EventHandler) -> None: ...
 
+    async def start(self) -> None:
+        """수신 준비. 프로세스 밖에서 이벤트를 받는 구현은 여기서 리스너를 띄운다.
+
+        인메모리 구현에는 할 일이 없지만 Protocol에 둔다 — 조립 지점이 어떤 구현인지
+        알고 분기하기 시작하면 ADR-008의 추상화가 무의미해진다.
+        """
+        ...
+
+    async def stop(self) -> None: ...
+
 
 class InMemoryEventBus:
     """같은 프로세스의 구독자에게만 전달한다. replica 1에서만 완전하다."""
@@ -35,6 +45,12 @@ class InMemoryEventBus:
 
     def subscribe(self, handler: EventHandler) -> None:
         self._handlers.append(handler)
+
+    async def start(self) -> None:
+        """프로세스 안에서 끝나므로 띄울 리스너가 없다."""
+
+    async def stop(self) -> None:
+        """정리할 연결이 없다."""
 
     async def publish(self, event: OfficeEvent) -> None:
         for handler in self._handlers:

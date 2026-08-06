@@ -90,7 +90,16 @@ k8s-secret: ## Secret 생성. 커밋하지 않는 값이라 매니페스트가 �
 	# .env가 있으면 LLM 키를 거기서 가져온다. 셸이 읽어 kubectl에 넘길 뿐 파일로
 	# 남기지 않는다. 키가 없으면 빈 값이 들어가고, APP_ENV=staging/prod인 백엔드는
 	# 부팅을 거부한다 — 의도된 동작이다(§8.2). 로컬 overlay는 APP_ENV=local이라 뜬다.
-	@set -a; [ -f .env ] && . ./.env; set +a; \
+	#
+	# `. ./.env`로 source하지 않는다. .env는 셸 스크립트가 아니라서 따옴표 없는
+	# `EMPLOYEE_NAME=수집가 노아` 같은 줄을 만나면 "노아: command not found"가 난다.
+	# 필요한 키만 뽑아내면 파일의 나머지 내용과 무관해진다.
+	@MINIMAX="$$(sed -n 's/^MINIMAX_API_KEY=//p' .env 2>/dev/null | tail -1)"; \
+	ANTHROPIC="$$(sed -n 's/^ANTHROPIC_API_KEY=//p' .env 2>/dev/null | tail -1)"; \
+	OPENAI="$$(sed -n 's/^OPENAI_API_KEY=//p' .env 2>/dev/null | tail -1)"; \
+	MINIMAX_API_KEY="$${MINIMAX:-$$MINIMAX_API_KEY}"; \
+	ANTHROPIC_API_KEY="$${ANTHROPIC:-$$ANTHROPIC_API_KEY}"; \
+	OPENAI_API_KEY="$${OPENAI:-$$OPENAI_API_KEY}"; \
 	kubectl -n $(K8S_NS) create secret generic backend-secret \
 		--from-literal=WORKER_API_KEY="$$(openssl rand -hex 32)" \
 		--from-literal=MINIMAX_API_KEY="$${MINIMAX_API_KEY:-}" \

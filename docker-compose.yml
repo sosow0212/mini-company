@@ -29,6 +29,21 @@ services:
       retries: 24
       start_period: 5s
 
+  redis:
+    image: redis:7.4-alpine
+    profiles: [infra, app, scheduler]
+    # 볼륨이 없다. 이벤트 버스는 유실을 허용한다(§10.2) — 재시작으로 잃는 것은
+    # "그 순간 화면 갱신" 하나뿐이고, 진실은 Mongo에 있어 재연결 시 스냅샷으로 복구된다.
+    # 영속성을 켜면 그 대가로 fsync 지연이 발행 경로에 얹힌다.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 2s
+
   # rs.initiate() 1회 실행 후 종료하는 one-shot 컨테이너.
   # 종료가 정상 동작이므로 healthcheck를 두지 않는다(다른 서비스는 필수).
   mongo-init:
@@ -115,6 +130,7 @@ services:
       # `.env`의 localhost는 컨테이너 안에서 자기 자신을 가리키므로 여기서 덮는다.
       # 켜는 것은 `.env`의 OLLAMA_ENABLED가 결정한다 — 주소만 바로잡는다.
       OLLAMA_BASE_URL: http://host.docker.internal:11434/v1
+      REDIS_URL: redis://redis:6379/0
     extra_hosts:
       # 리눅스 순수 Docker에는 host.docker.internal이 없다. 이 줄이 만들어준다.
       - "host.docker.internal:host-gateway"
@@ -122,6 +138,9 @@ services:
     depends_on:
       mongo: { condition: service_healthy }
       milvus: { condition: service_healthy }
+      # EVENT_BUS=memory면 쓰지 않지만, 기다려도 몇 초다. 켠 뒤에 "왜 이벤트가 안 오지"로
+      # 시작하는 디버깅보다 낫다.
+      redis: { condition: service_healthy }
     healthcheck:
       # slim 이미지에 curl이 없다.
       test:

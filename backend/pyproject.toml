@@ -19,6 +19,8 @@ dependencies = [
     # 문서 파서. 직접 구현하면 엣지케이스에서 조용히 깨진다.
     "pypdf>=5.1",
     "beautifulsoup4>=4.12",
+    # 다중 replica 이벤트 버스(ADR-008). asyncio 지원이 패키지에 들어 있어 별도 라이브러리가 없다.
+    "redis>=6.0",
 ]
 
 [project.optional-dependencies]

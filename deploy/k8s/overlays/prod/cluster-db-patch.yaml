@@ -20,7 +20,10 @@ spec:
               value: http://milvus:19530
             - name: MILVUS_HEALTH_URL
               value: http://milvus:9091/healthz
-            # Phase 12에서 redis로 바꾼다. 지금 바꾸면 부팅이 거부된다 —
-            # factory.py가 미구현을 조용히 memory로 떨어뜨리지 않고 실패시킨다.
+            # replica가 2이므로 필수다(ADR-008). memory로 두면 WS가 붙은 Pod와
+            # 상태를 바꾼 Pod가 다를 때 그 사용자만 화면이 멈춘다 — 재현이 간헐적이라
+            # 가장 찾기 어려운 형태의 버그다.
             - name: EVENT_BUS
-              value: memory
+              value: redis
+            - name: REDIS_URL
+              value: redis://redis:6379/0

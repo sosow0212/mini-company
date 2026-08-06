@@ -51,8 +51,12 @@ class Settings(BaseSettings):
 
     # ─── EventBus (ADR-008) ───────────────────────────────────
     # replica가 2 이상이면 redis가 필수다. memory면 이벤트가 자기 프로세스의 연결에만
-    # 전달되어 "어떤 사용자는 이벤트를 못 받는" 상태가 된다. redis 구현은 Phase 12.
+    # 전달되어 "어떤 사용자는 이벤트를 못 받는" 상태가 된다.
     event_bus: Literal["memory", "redis"] = "memory"
+    redis_url: str = "redis://localhost:6379/0"
+    # 채널을 설정으로 둔 이유: 한 Redis를 여러 환경(dev/staging)이 공유할 때 이름이
+    # 겹치면 남의 이벤트가 내 화면에 뜬다. 붙는 순간까지 아무 에러도 나지 않는다.
+    redis_event_channel: str = "mini-company:office-events"
 
     # ─── LLM: 키 (프로바이더 단위, 전부 SECRET) ────────────────
     # 키는 이 프로세스에만 존재한다. 워커는 프록시를 경유하므로 키를 갖지 않는다(ADR-007).
