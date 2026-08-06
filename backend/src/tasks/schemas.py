@@ -14,6 +14,7 @@ class TaskResponse(ApiModel):
     id: str
     employee_id: str
     kind: str
+    title: str | None
     status: TaskStatus
     summary: str | None
     started_at: datetime | None
@@ -29,6 +30,7 @@ class TaskResponse(ApiModel):
             id=str(task.id),
             employee_id=str(task.employee_id),
             kind=task.kind,
+            title=task.title,
             status=task.status,
             summary=task.summary,
             started_at=task.started_at,
@@ -66,6 +68,20 @@ ActivityPage = CursorPage[ActivityResponse]
 class StartTaskRequest(ApiModel):
     employee_id: PydanticObjectId
     kind: str = Field(min_length=1, max_length=100)
+    title: str | None = Field(default=None, max_length=120)
+
+
+class AssignTaskRequest(ApiModel):
+    """사람이 UI에서 시키는 일.
+
+    `kind`는 워커가 실행할 워크플로우를 고르는 식별자이고, `title`은 화면에 뜨는
+    한 줄 설명이다. 상태는 받지 않는다 — 항상 QUEUED로 들어가고, RUNNING은 워커가
+    실제로 집어갈 때만 찍힌다.
+    """
+
+    employee_id: PydanticObjectId
+    kind: str = Field(min_length=1, max_length=100)
+    title: str | None = Field(default=None, max_length=120)
 
 
 class AddActivityRequest(ApiModel):

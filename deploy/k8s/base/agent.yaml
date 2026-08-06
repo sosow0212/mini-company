@@ -1,0 +1,48 @@
+# 지시받은 일을 집어 실행하는 상시 워커.
+#
+# **CronJob이 아니라 Deployment인 이유**: 사람이 언제 지시할지 모른다. CronJob은
+# 정해진 시각에만 뜨므로, 그 사이에 시킨 일은 다음 실행까지 QUEUED에 머문다.
+# collector CronJob(jobs/)과는 역할이 다르다 — 저쪽은 시간이 되면 스스로 일을 만든다.
+#
+# **replica가 1인 이유**: 늘려도 동작은 한다(클레임이 원자적이라 같은 작업을 두 번
+# 집지 않는다). 다만 직원 1명당 활성 작업이 1개라 병렬로 처리할 대상이 애초에 적고,
+# 늘리는 순간 "누가 무엇을 집었나"가 로그에서 흩어진다. 대기가 길어지면 그때 늘린다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: agent }
+  template:
+    metadata:
+      labels: { app: agent }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+      # 진행 중인 작업을 마감할 시간을 준다. 하네스가 SIGTERM에서 FAILED로 마감하는데
+      # (BaseException을 잡는다), 그 API 호출이 끝나기 전에 SIGKILL이 오면 작업은
+      # RUNNING에 남고 회수 루프가 타임아웃까지 기다려야 한다.
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: agent
+          image: mini-company/worker:0.1.0
+          imagePullPolicy: IfNotPresent
+          # 이미지 기본 CMD는 스케줄러다. 여기서는 대기열 처리 루프를 돌린다.
+          command: ["python", "-m", "src.agent"]
+          env:
+            - { name: BACKEND_BASE_URL, value: "http://backend:8000" }
+            - { name: LOG_FORMAT, value: json }
+          envFrom:
+            # WORKER_API_KEY만 필요하지만 같은 Secret을 쓰면 키 로테이션이 백엔드와 맞는다.
+            - secretRef: { name: backend-secret }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }

@@ -13,6 +13,7 @@ from src.tasks.constants import ActivityLevel, TaskStatus
 class TaskDocument(Document):
     employee_id: PydanticObjectId
     kind: str
+    title: str | None = None
     status: TaskStatus
     summary: str | None = None
     started_at: datetime | None = None

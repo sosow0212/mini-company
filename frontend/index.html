@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>mini-company — AI 직원 관제실</title>
-    <meta name="description" content="AI 직원의 작업과 비용을 실시간으로 보는 관제 화면" />
+    <meta name="description" content="AI 직원을 채용하고 일을 맡기는 관제 화면" />
   </head>
   <body>
     <div class="shell">
@@ -13,18 +13,54 @@
           mini<span class="brand__dim">-company</span>
           <span class="brand__tag">관제실</span>
         </h1>
-        <p id="connection-badge" class="badge" data-state="down">연결 중</p>
+        <!--
+          화면이 무엇을 하는 곳인지 한 줄로 말한다. 3D 씬만 있으면 "예쁜데 뭘 하라는
+          건지" 모르는 상태가 된다.
+        -->
+        <p class="topbar__lead">
+          AI 직원을 채용하고 일을 맡기면, 직원이 워크플로우를 실행해 결과를 보고합니다.
+        </p>
+        <div class="topbar__right">
+          <p id="connection-badge" class="badge" data-state="down">연결 중</p>
+          <button type="button" id="hire-button" class="button button--primary">
+            + 직원 채용
+          </button>
+        </div>
       </header>
 
       <main class="stage" aria-label="3D 오피스">
         <div id="scene-host" class="scene-host"></div>
+
+        <!-- 직원이 0명이면 빈 방만 보인다. 다음에 뭘 눌러야 하는지 알려준다. -->
+        <div id="empty-state" class="empty-state" hidden>
+          <h2>사무실이 비어 있습니다</h2>
+          <p>
+            오른쪽 위 <strong>+ 직원 채용</strong>으로 첫 직원을 뽑으세요.<br />
+            채용한 직원을 클릭하면 일을 맡길 수 있습니다.
+          </p>
+        </div>
+
         <p id="boot-error" class="boot-error" role="alert" hidden></p>
       </main>
 
       <aside class="rail" aria-label="관제 패널">
+        <!--
+          직원 상세가 맨 위다. 아래에 두면 원장·작업 패널에 밀려 스크롤해야 보이고,
+          아바타를 클릭해도 아무 일이 없는 것처럼 느껴진다. 평소에는 hidden이라
+          자리를 차지하지 않는다.
+        -->
+        <section
+          id="employee-panel"
+          class="panel panel--detail"
+          aria-label="직원 상세"
+          hidden
+        ></section>
         <section id="ledger-panel" class="panel" aria-label="원장 요약"></section>
-        <section id="employee-panel" class="panel panel--detail" aria-label="직원 상세" hidden></section>
-        <p class="rail__hint">아바타를 클릭하면 활동 로그가 열립니다.</p>
+        <section id="task-panel" class="panel" aria-label="작업 목록"></section>
+        <p class="rail__hint">
+          아바타를 클릭하면 그 직원에게 <strong>일 시키기 · 수정 · 해고</strong>를 할 수
+          있습니다.
+        </p>
       </aside>
     </div>
 

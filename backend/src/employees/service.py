@@ -3,8 +3,9 @@ from datetime import UTC, datetime
 from beanie import PydanticObjectId
 
 from src.employees.constants import ROLE_LLM_PROFILES, EmployeeStatus, Role
+from src.employees.desk import next_free_desk
 from src.employees.domain import DeskPosition, Employee
-from src.employees.exceptions import EmployeeNotFound
+from src.employees.exceptions import EmployeeAtWork, EmployeeNameTaken, EmployeeNotFound
 from src.employees.repository import EmployeeRepositoryProtocol
 from src.employees.schemas import EmployeeResponse
 
@@ -29,6 +30,77 @@ class EmployeeService:
         if employee is None:
             raise EmployeeNotFound
         return EmployeeResponse.from_domain(employee)
+
+    async def hire(self, *, name: str, role: Role) -> EmployeeResponse:
+        """채용. 사람이 UI에서 부르는 경로다(시드의 `hire_or_update`와 다르다).
+
+        좌표를 요청에서 받지 않는다 — 3D 자리 배치는 사무실의 문제이지 사용자의 문제가
+        아니다. LLM 프로파일도 직무에서 파생시킨다. 둘 다 사용자가 고르게 하면 "WRITER인데
+        cheap" 같은 조합이 생기고, 배정 규칙이 UI와 서버 두 곳으로 갈라진다(§8.3).
+        """
+        name = name.strip()
+        if await self._repository.get_by_name(name) is not None:
+            raise EmployeeNameTaken
+
+        occupied = [employee.desk for employee in await self._repository.list()]
+        hired = await self._repository.save(
+            Employee(
+                name=name,
+                role=role,
+                # 채용 직후는 OFFLINE이다. 일을 받으면 WORKING이 된다 —
+                # 처음부터 IDLE로 두면 "대기 중"과 "출근 안 함"을 구분할 수 없다.
+                status=EmployeeStatus.OFFLINE,
+                desk=next_free_desk(occupied),
+                llm_profile=ROLE_LLM_PROFILES[role],
+                hired_at=datetime.now(UTC),
+            )
+        )
+        return EmployeeResponse.from_domain(hired)
+
+    async def update(
+        self,
+        employee_id: PydanticObjectId,
+        *,
+        name: str | None = None,
+        role: Role | None = None,
+    ) -> EmployeeResponse:
+        """이름·직무 변경. 상태와 진행 중 작업은 건드리지 않는다.
+
+        직무를 바꾸면 프로파일도 함께 바뀐다. 따로 두면 둘이 갈라진 조합이 조용히 남는다.
+        """
+        employee = await self._repository.get(employee_id)
+        if employee is None:
+            raise EmployeeNotFound
+
+        changes: dict[str, object] = {}
+        if name is not None and (name := name.strip()) != employee.name:
+            existing = await self._repository.get_by_name(name)
+            if existing is not None and existing.id != employee_id:
+                raise EmployeeNameTaken
+            changes["name"] = name
+        if role is not None and role != employee.role:
+            changes["role"] = role
+            changes["llm_profile"] = ROLE_LLM_PROFILES[role]
+
+        if not changes:
+            return EmployeeResponse.from_domain(employee)
+        return EmployeeResponse.from_domain(
+            await self._repository.save(employee.model_copy(update=changes))
+        )
+
+    async def fire(self, employee_id: PydanticObjectId) -> None:
+        """해고. 작업 중이면 거부한다.
+
+        지우면 그 작업은 담당자 없이 RUNNING에 남고, 회수 루프가 풀어줄 직원을 찾지
+        못한다. 활동·원장 기록은 그대로 남는다 — append-only라 직원이 사라져도
+        "누가 무엇을 했는지"는 보존된다(ADR-003).
+        """
+        employee = await self._repository.get(employee_id)
+        if employee is None:
+            raise EmployeeNotFound
+        if employee.current_task_id is not None:
+            raise EmployeeAtWork
+        await self._repository.delete(employee_id)
 
     async def hire_or_update(
         self,

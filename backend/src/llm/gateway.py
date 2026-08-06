@@ -64,6 +64,32 @@ def _with_local_model(
     return merged_profiles, merged_pricing
 
 
+def _redirect_to_local(profiles: dict[str, LlmProfile], *, model: str) -> dict[str, LlmProfile]:
+    """호출할 수 없는 프로파일을 로컬 모델로 돌린다.
+
+    **언제 일어나나**: Ollama만 설정되어 있고 원격 프로바이더 키가 하나도 없을 때.
+    이 상황에서 직원의 프로파일(`writer` 등)을 그대로 두면 모든 LLM 작업이 503으로
+    실패한다 — 카탈로그에는 있지만 부를 수 없는 프로파일이기 때문이다.
+
+    **왜 이게 마법이 아닌가**: 대안은 "아무 LLM 작업도 못 하는 상태"뿐이다. 키가 없는
+    프로파일은 실행 가능한 선택지가 애초에 없고, 로컬 모델은 있다. 무엇이 바뀌었는지는
+    부팅 로그에 남긴다.
+
+    temperature와 max_tokens는 원래 프로파일 값을 유지한다. 직무마다 다른 성격
+    (structured는 0, writer는 높게)은 모델이 바뀌어도 유지되어야 의미가 있다.
+    """
+    return {
+        name: (
+            profile
+            if profile.provider == "ollama"
+            # fallback을 지운다. 폴백 대상도 같은 로컬 모델이라 재시도가 무의미하고,
+            # 느린 로컬 추론을 두 번 하게 된다.
+            else LlmProfile(profile.name, "ollama", model, profile.temperature, profile.max_tokens)
+        )
+        for name, profile in profiles.items()
+    }
+
+
 def build_gateway(settings: Settings) -> LlmGateway:
     profiles = load_profiles(settings.llm_profiles_json)
     pricing = load_pricing(settings.llm_pricing_json)
@@ -72,10 +98,21 @@ def build_gateway(settings: Settings) -> LlmGateway:
     if settings.ollama_enabled:
         profiles, pricing = _with_local_model(profiles, pricing, model=settings.ollama_model)
 
+    configured = configured_names(providers)
+    if settings.ollama_enabled and configured == {"ollama"}:
+        # 로컬 모델만 있는 환경. 그대로 두면 직원 프로파일이 전부 호출 불가라
+        # 모든 LLM 작업이 503으로 끝난다.
+        profiles = _redirect_to_local(profiles, model=settings.ollama_model)
+        logger.warning(
+            "원격 프로바이더 키가 없어 모든 프로파일을 로컬 모델로 돌린다: %s "
+            "(원격 모델을 쓰려면 키를 설정한다)",
+            settings.ollama_model,
+        )
+
     warnings = validate_catalog(
         profiles,
         known_providers=set(providers),
-        configured_providers=configured_names(providers),
+        configured_providers=configured,
         priced_models=set(pricing),
         # 로컬에서는 키 없이도 앱이 떠야 한다(프론트·원장 작업 중에는 LLM이 필요 없다).
         # 그 외 환경에서는 키 누락이 곧 부팅 실패다.

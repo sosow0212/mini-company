@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 PROFILES := --profile infra --profile app
 
-.PHONY: up up-all down clean logs dev indexes seed test test-int test-e2e test-worker lint fmt worker-demo scheduler dev-front test-front k8s-up k8s-images k8s-secret k8s-deploy k8s-deploy-full k8s-status k8s-logs k8s-rotate-key k8s-down
+.PHONY: up up-all down clean logs dev agent indexes seed test test-int test-e2e test-worker lint fmt worker-demo scheduler dev-front test-front k8s-up k8s-images k8s-secret k8s-deploy k8s-deploy-full k8s-status k8s-logs k8s-rotate-key k8s-down
 
 up: ## 인프라(mongo/milvus)만 띄운다. 앱은 make dev로 호스트에서 실행.
 	$(COMPOSE) --profile infra up -d
@@ -49,6 +49,9 @@ test-front: ## 프론트 단위 테스트 + 타입체크.
 
 worker-demo: ## 수집 워커 1회 실행. 백엔드(up-all 또는 dev)와 시드가 먼저 필요하다.
 	cd workers && .venv/bin/python -m src.employees.collector
+
+agent: ## 지시받은 일을 집어 실행하는 상시 루프. UI로 시킨 일은 이게 떠 있어야 처리된다.
+	cd workers && .venv/bin/python -m src.agent
 
 scheduler: ## 주기 실행(기본: 매일 11시). Ctrl+C로 종료. K8s에서는 CronJob이 대체한다.
 	cd workers && .venv/bin/python -m src.scheduler

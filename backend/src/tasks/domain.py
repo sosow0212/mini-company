@@ -18,7 +18,11 @@ class Task(BaseModel):
     # 아직 저장되지 않은 작업은 id가 없다.
     id: PydanticObjectId | None = None
     employee_id: PydanticObjectId
+    # 워크플로우 종류. 워커가 이 값으로 무엇을 실행할지 고른다.
     kind: str
+    # 사람이 읽는 한 줄. 지시한 사람이 적고, 화면 목록에 그대로 뜬다.
+    # kind와 나눈 이유: kind는 실행 분기용 식별자라 자유 텍스트를 담으면 안 된다.
+    title: str | None = None
     status: TaskStatus = TaskStatus.QUEUED
     # 플레이스홀더({{ledger.*}})를 포함할 수 있다. 치환은 Phase 3 렌더러의 몫이다.
     summary: str | None = None

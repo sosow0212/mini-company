@@ -11,15 +11,20 @@
 
 import './styles/tokens.css';
 import './styles/global.css';
+import './styles/controls.css';
 
 import { fetchSnapshot } from './api/client';
 import { connectOfficeSocket } from './api/socket';
 import { OfficeScene } from './scene/OfficeScene';
 import { OfficeStore } from './state/officeStore';
+import { AssignDialog } from './ui/AssignDialog';
+import { EditDialog } from './ui/EditDialog';
 import { EmployeePanel } from './ui/EmployeePanel';
+import { HireDialog } from './ui/HireDialog';
 import { LedgerPanel } from './ui/LedgerPanel';
 import { NameTag } from './ui/NameTag';
 import { SpeechBubble } from './ui/SpeechBubble';
+import { TaskPanel } from './ui/TaskPanel';
 
 const BUBBLE_SWEEP_MS = 1_000;
 
@@ -32,8 +37,44 @@ function requireElement(id: string): HTMLElement {
 async function main(): Promise<void> {
   const store = new OfficeStore();
   const ledgerPanel = new LedgerPanel(requireElement('ledger-panel'));
-  const employeePanel = new EmployeePanel(requireElement('employee-panel'));
+  const taskPanel = new TaskPanel(requireElement('task-panel'));
   const connectionBadge = requireElement('connection-badge');
+
+  /**
+   * 직원 목록이 바뀌면 스냅샷을 다시 받는다.
+   *
+   * 채용·해고에는 전용 WS 이벤트가 없다(상태 변경 이벤트는 이미 있는 직원에 대한 것이다).
+   * 이벤트를 새로 만드는 대신 스냅샷 재조회로 맞춘다 — 사람이 누르는 빈도라 비용이 없고,
+   * 재연결 복구가 쓰는 경로와 같아서 갈라질 코드가 없다(§12).
+   */
+  const reloadRoster = async (): Promise<void> => {
+    store.replaceWithSnapshot(await fetchSnapshot());
+    await taskPanel.refresh();
+  };
+
+  // 직원이 하나도 없으면 3D 씬이 텅 빈 방이라 무엇을 해야 할지 알 수 없다.
+  const emptyState = requireElement('empty-state');
+
+  const hireDialog = new HireDialog();
+  const assignDialog = new AssignDialog();
+  const editDialog = new EditDialog();
+  hireDialog.setOnDone(() => void reloadRoster());
+  editDialog.setOnDone(() => void reloadRoster());
+  assignDialog.setOnDone(() => void taskPanel.refresh());
+
+  const employeePanel = new EmployeePanel(requireElement('employee-panel'), {
+    onAssign: (employee) => {
+      assignDialog.show(employee);
+    },
+    onEdit: (employee) => {
+      editDialog.show(employee);
+    },
+    onFired: () => void reloadRoster(),
+  });
+
+  requireElement('hire-button').addEventListener('click', () => {
+    hireDialog.show();
+  });
 
   const scene = new OfficeScene(requireElement('scene-host'), (employeeId) => {
     if (employeeId === null) {
@@ -50,6 +91,8 @@ async function main(): Promise<void> {
   store.subscribe(() => {
     const employees = store.listEmployees();
     scene.syncEmployees(employees.map((view) => view.employee));
+    taskPanel.setEmployees(employees.map((view) => view.employee));
+    emptyState.hidden = employees.length > 0;
 
     for (const view of employees) {
       const { id } = view.employee;
@@ -85,6 +128,7 @@ async function main(): Promise<void> {
   }, BUBBLE_SWEEP_MS);
 
   store.replaceWithSnapshot(await fetchSnapshot());
+  void taskPanel.refresh();
   scene.start();
 
   connectOfficeSocket({

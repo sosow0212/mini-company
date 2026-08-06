@@ -129,6 +129,31 @@ class EmployeeRepositoryContract:
 
         assert [employee.name for employee in found] == ["일하는 작가"]
 
+    async def test_delete_removes_the_employee(
+        self, repository: EmployeeRepositoryProtocol
+    ) -> None:
+        saved = await repository.save(_new_employee("퇴사자"))
+
+        assert await repository.delete(saved.id) is True
+        assert await repository.get(saved.id) is None
+
+    async def test_delete_reports_false_when_already_gone(
+        self, repository: EmployeeRepositoryProtocol
+    ) -> None:
+        """ "없음"이 오류인지는 service가 정한다. repository는 사실만 알린다."""
+        assert await repository.delete(PydanticObjectId()) is False
+
+    async def test_delete_frees_the_name_for_reuse(
+        self, repository: EmployeeRepositoryProtocol
+    ) -> None:
+        """이름이 신원이다. 지운 뒤에도 unique 인덱스가 남으면 재채용이 막힌다."""
+        saved = await repository.save(_new_employee("이름"))
+        await repository.delete(saved.id)
+
+        await repository.save(_new_employee("이름"))
+
+        assert await repository.get_by_name("이름") is not None
+
 
 class TestInMemoryEmployeeRepository(EmployeeRepositoryContract):
     @pytest.fixture

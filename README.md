@@ -8,6 +8,32 @@ AI 직원(에이전트)이 수행한 작업을 3D 오피스로 시각화하고, 
 - 설계: [`docs/PROJECT_BLUEPRINT.md`](docs/PROJECT_BLUEPRINT.md)
 - 에이전트 코딩 규칙: [`AGENTS.md`](AGENTS.md)
 
+## 무엇을 하는 화면인가
+
+```
+[+ 직원 채용]  →  아바타 클릭  →  [일 시키기]  →  에이전트가 집어감  →  결과 보고
+   이름·직무        상세 패널       종류 + 한 줄       하네스 실행         작업 목록 + 말풍선
+```
+
+1. **채용** — 이름과 직무만 정한다. 책상 자리와 LLM 프로파일은 서버가 직무에서 정한다.
+2. **일 시키기** — 종류(수집·분석·보고서)와 한 줄 지시. 상태는 `QUEUED`로 들어간다.
+3. **에이전트가 집어간다** — `agent` 프로세스가 대기열을 폴링해 원자적으로 클레임하고
+   `RUNNING`으로 바꾼다. 여기서 직원 아바타가 초록으로 바뀐다.
+4. **하네스 안에서 워크플로우 실행** — 단계마다 활동을 남기고(말풍선), 끝나면 요약을 쓴다.
+   실패하든 취소되든 하네스가 반드시 마감한다.
+
+| 시킬 수 있는 일 | 하는 일 | 제목의 쓰임 |
+|---|---|---|
+| 자료 수집 | 외부 소스 → 파싱·청킹·임베딩 → 지식 베이스 | 기록용 |
+| 자료 분석 | 지식 검색 → LLM으로 요점 정리 | **검색어** |
+| 보고서 작성 | 근거 검색 → LLM으로 문장 작성 | **주제** |
+
+새 종류는 `workers/src/workflows/`에 함수 하나를 추가하고 레지스트리에 등록하면 된다 —
+에이전트 루프는 고치지 않는다.
+
+> **`QUEUED`에서 안 움직인다면** `agent` 프로세스가 떠 있지 않은 것이다.
+> `docker compose --profile app up -d agent` 또는 `make agent`.
+
 ## 현재 진행 상황
 
 | Phase | 산출물                                                      | 상태 |
@@ -82,10 +108,15 @@ make clean       # 볼륨까지 삭제
 ```
 GET  /health/live                                   # 의존성 검사 없음
 GET  /health/ready                                  # mongo + milvus 검사, 실패 시 503
-GET  /api/v1/employees?role=&status=
-GET  /api/v1/employees/{id}
+GET    /api/v1/employees?role=&status=
+POST   /api/v1/employees                            # 채용 (자리·프로파일은 서버가 정한다)
+GET    /api/v1/employees/{id}
+PATCH  /api/v1/employees/{id}                       # 이름·직무 변경 (프로파일도 함께)
+DELETE /api/v1/employees/{id}                       # 해고. 작업 중이면 409
 GET  /api/v1/employees/{id}/activities?limit=&cursor=   # { items, nextCursor }
-GET  /api/v1/tasks?employee_id=&status=
+GET    /api/v1/tasks?employee_id=&status=
+POST   /api/v1/tasks                                # 일 시키기 → QUEUED
+POST   /api/v1/tasks/{id}/cancel                    # 대기 중인 지시 취소
 GET  /api/v1/ledger/summary?period=daily|monthly|all    # 서버가 aggregate한 값만
 GET  /api/v1/knowledge/documents?limit=              # 수집 문서 목록
 GET  /api/v1/knowledge/documents/{id}                # 원문 메타 상세
@@ -96,7 +127,8 @@ GET  /api/v1/office/snapshot                        # 직원 전체 + 원장 요
 WS   /api/v1/ws/office                              # 이후의 변화분만
 
 # 내부 (워커 전용, X-Worker-Key 헤더 필수)
-POST  /internal/v1/tasks                            # 작업 시작 → 직원 WORKING
+POST  /internal/v1/tasks                            # 워커가 스스로 시작 (스케줄 실행)
+POST  /internal/v1/tasks/claim                      # 지시받은 일을 집어감 → RUNNING
 POST  /internal/v1/tasks/{id}/activities            # 활동 로그 1건 (append-only)
 PATCH /internal/v1/tasks/{id}                       # SUCCEEDED/FAILED → 직원 IDLE/ERROR
 POST  /internal/v1/ledger/entries                   # 원시 트랜잭션 (append-only)

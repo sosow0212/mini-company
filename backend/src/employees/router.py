@@ -6,11 +6,15 @@
 """
 
 from beanie import PydanticObjectId
-from fastapi import APIRouter
+from fastapi import APIRouter, status
 
 from src.employees.constants import EmployeeStatus, Role
 from src.employees.dependencies import EmployeeServiceDep
-from src.employees.schemas import EmployeeResponse
+from src.employees.schemas import (
+    EmployeeResponse,
+    HireEmployeeRequest,
+    UpdateEmployeeRequest,
+)
 
 router = APIRouter(prefix="/employees", tags=["employees"])
 
@@ -30,3 +34,28 @@ async def get_employee(
     service: EmployeeServiceDep,
 ) -> EmployeeResponse:
     return await service.get_employee(employee_id)
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+async def hire_employee(
+    request: HireEmployeeRequest,
+    service: EmployeeServiceDep,
+) -> EmployeeResponse:
+    """채용. 책상 좌표와 LLM 프로파일은 서버가 정한다."""
+    return await service.hire(name=request.name, role=request.role)
+
+
+@router.patch("/{employee_id}")
+async def update_employee(
+    employee_id: PydanticObjectId,
+    request: UpdateEmployeeRequest,
+    service: EmployeeServiceDep,
+) -> EmployeeResponse:
+    """이름·직무 변경. 직무를 바꾸면 LLM 프로파일도 함께 바뀐다."""
+    return await service.update(employee_id, name=request.name, role=request.role)
+
+
+@router.delete("/{employee_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def fire_employee(employee_id: PydanticObjectId, service: EmployeeServiceDep) -> None:
+    """해고. 작업 중이면 409. 활동·원장 기록은 남는다(append-only)."""
+    await service.fire(employee_id)

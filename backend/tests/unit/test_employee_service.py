@@ -3,7 +3,7 @@ from beanie import PydanticObjectId
 
 from src.employees.constants import ROLE_LLM_PROFILES, EmployeeStatus, Role
 from src.employees.domain import DeskPosition
-from src.employees.exceptions import EmployeeNotFound
+from src.employees.exceptions import EmployeeAtWork, EmployeeNameTaken, EmployeeNotFound
 from src.employees.service import EmployeeService
 from tests.fakes.employee_repository import InMemoryEmployeeRepository
 
@@ -140,3 +140,119 @@ async def test_hire_or_update_does_not_duplicate_when_run_twice() -> None:
     await service.hire_or_update(name="멱등 직원", role=Role.WRITER, desk=_DESK)
 
     assert len(await service.list_employees()) == 1
+
+
+# ─── 채용·수정·해고 (사람이 UI에서 하는 일) ──────────────────────
+
+
+async def test_hire_places_the_new_desk_where_nobody_sits(make_employee) -> None:
+    """좌표를 요청에서 받지 않는다. 서버가 빈 자리를 찾는다."""
+    service = _service()
+
+    first = await service.hire(name="첫 직원", role=Role.COLLECTOR)
+    second = await service.hire(name="둘째 직원", role=Role.WRITER)
+
+    assert (first.desk.x, first.desk.z) != (second.desk.x, second.desk.z)
+
+
+async def test_hire_derives_the_llm_profile_from_the_role() -> None:
+    """프로파일을 요청에서 받으면 "WRITER인데 cheap" 같은 조합이 생긴다(§8.3)."""
+    service = _service()
+
+    hired = await service.hire(name="작가", role=Role.WRITER)
+
+    assert hired.llm_profile == ROLE_LLM_PROFILES[Role.WRITER]
+
+
+async def test_hire_starts_offline_not_idle() -> None:
+    """OFFLINE과 IDLE은 다르다. 채용 직후는 "아직 출근 전"이다."""
+    hired = await _service().hire(name="신입", role=Role.ANALYST)
+
+    assert hired.status is EmployeeStatus.OFFLINE
+
+
+async def test_hire_rejects_a_duplicate_name(make_employee) -> None:
+    service = _service(make_employee("수집가 노아"))
+
+    with pytest.raises(EmployeeNameTaken):
+        await service.hire(name="수집가 노아", role=Role.COLLECTOR)
+
+
+async def test_hire_trims_surrounding_whitespace() -> None:
+    hired = await _service().hire(name="  여백  ", role=Role.TRADER)
+
+    assert hired.name == "여백"
+
+
+async def test_changing_the_role_moves_the_llm_profile_with_it(make_employee) -> None:
+    employee = make_employee("미르", role=Role.COLLECTOR)
+    service = _service(employee)
+
+    updated = await service.update(employee.id, role=Role.ENGINEER)
+
+    assert updated.role is Role.ENGINEER
+    assert updated.llm_profile == ROLE_LLM_PROFILES[Role.ENGINEER]
+
+
+async def test_update_keeps_runtime_state(make_employee) -> None:
+    """이름을 바꿨다고 일하던 직원이 놀게 되면 안 된다."""
+    task_id = PydanticObjectId()
+    employee = make_employee("미르", status=EmployeeStatus.WORKING, current_task_id=task_id)
+    service = _service(employee)
+
+    updated = await service.update(employee.id, name="새 이름")
+
+    assert updated.status is EmployeeStatus.WORKING
+    assert updated.current_task_id == str(task_id)
+
+
+async def test_update_rejects_a_name_another_employee_already_has(make_employee) -> None:
+    mine = make_employee("나")
+    service = _service(mine, make_employee("남"))
+
+    with pytest.raises(EmployeeNameTaken):
+        await service.update(mine.id, name="남")
+
+
+async def test_update_allows_keeping_the_same_name(make_employee) -> None:
+    """자기 이름을 그대로 보내는 건 중복이 아니다."""
+    employee = make_employee("그대로")
+    service = _service(employee)
+
+    updated = await service.update(employee.id, name="그대로", role=Role.TRADER)
+
+    assert updated.name == "그대로"
+    assert updated.role is Role.TRADER
+
+
+async def test_fire_removes_an_idle_employee(make_employee) -> None:
+    employee = make_employee("퇴사자", status=EmployeeStatus.IDLE)
+    service = _service(employee)
+
+    await service.fire(employee.id)
+
+    with pytest.raises(EmployeeNotFound):
+        await service.get_employee(employee.id)
+
+
+async def test_fire_refuses_while_a_task_is_in_flight(make_employee) -> None:
+    """지우면 그 작업은 담당자 없이 RUNNING에 남고 회수 루프가 풀어줄 대상을 잃는다."""
+    employee = make_employee(
+        "일하는중", status=EmployeeStatus.WORKING, current_task_id=PydanticObjectId()
+    )
+    service = _service(employee)
+
+    with pytest.raises(EmployeeAtWork):
+        await service.fire(employee.id)
+
+
+async def test_fire_reuses_the_freed_desk(make_employee) -> None:
+    """해고로 생긴 빈자리를 다음 채용이 다시 쓴다."""
+    service = _service()
+    first = await service.hire(name="먼저", role=Role.COLLECTOR)
+    await service.hire(name="나중", role=Role.WRITER)
+
+    await service.fire(PydanticObjectId(first.id))
+    replacement = await service.hire(name="대체", role=Role.ANALYST)
+
+    assert (replacement.desk.x, replacement.desk.z) == (first.desk.x, first.desk.z)

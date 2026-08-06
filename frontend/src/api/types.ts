@@ -55,6 +55,65 @@ export interface CursorPage<T> {
   readonly nextCursor: string | null;
 }
 
+export type TaskStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
+
+export interface Task {
+  readonly id: string;
+  readonly employeeId: string;
+  readonly kind: string;
+  /** 지시한 사람이 적은 한 줄. 워커는 이 값을 검색어·주제로 쓴다. */
+  readonly title: string | null;
+  readonly status: TaskStatus;
+  readonly summary: string | null;
+  readonly startedAt: string | null;
+  readonly finishedAt: string | null;
+  readonly error: string | null;
+  readonly createdAt: string;
+}
+
+/**
+ * 시킬 수 있는 일의 목록.
+ *
+ * 워커의 `src/workflows/__init__.py`가 실행 가능한 종류를 소유한다. 여기 목록에만 있고
+ * 워커에 없으면 그 지시는 "알 수 없는 작업 종류"로 실패한다 — 양쪽을 함께 고쳐야 한다.
+ */
+export const WORKFLOWS = [
+  {
+    kind: 'collect_market_data',
+    label: '자료 수집',
+    hint: '외부 소스에서 문서를 가져와 지식 베이스에 적재합니다.',
+    titlePlaceholder: '예: 주간 시장 자료',
+  },
+  {
+    kind: 'analyze_knowledge',
+    label: '자료 분석',
+    hint: '적재된 자료를 검색해 핵심을 정리합니다. 제목이 검색어가 됩니다.',
+    titlePlaceholder: '예: 반도체 수요',
+  },
+  {
+    kind: 'write_report',
+    label: '보고서 작성',
+    hint: '근거를 찾아 보고서를 씁니다. 근거가 없으면 쓰지 않습니다.',
+    titlePlaceholder: '예: 메모리 반도체 수요',
+  },
+] as const;
+
+export const ROLE_LABELS: Readonly<Record<Role, string>> = {
+  COLLECTOR: '수집가',
+  ANALYST: '분석가',
+  WRITER: '작가',
+  TRADER: '트레이더',
+  ENGINEER: '엔지니어',
+};
+
+export const TASK_STATUS_LABELS: Readonly<Record<TaskStatus, string>> = {
+  QUEUED: '대기 중',
+  RUNNING: '진행 중',
+  SUCCEEDED: '완료',
+  FAILED: '실패',
+  CANCELLED: '취소됨',
+};
+
 /** 서버 → 클라이언트 이벤트. `type`이 판별자라 switch 하나로 분기한다. */
 export type OfficeEvent =
   | {

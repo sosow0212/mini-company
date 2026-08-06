@@ -12,6 +12,7 @@ resources:
   - namespace.yaml
   - configmap.yaml
   - backend.yaml
+  - agent.yaml
   - frontend.yaml
   - ingress.yaml
 

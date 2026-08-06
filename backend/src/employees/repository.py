@@ -26,6 +26,10 @@ class EmployeeRepositoryProtocol(Protocol):
 
     async def save(self, employee: Employee) -> Employee: ...
 
+    async def delete(self, employee_id: PydanticObjectId) -> bool:
+        """지웠으면 True, 이미 없었으면 False. "없음"이 오류인지는 service가 정한다."""
+        ...
+
 
 class EmployeeRepository:
     """Beanie 쿼리는 이 파일에만 등장한다."""
@@ -55,6 +59,13 @@ class EmployeeRepository:
     async def save(self, employee: Employee) -> Employee:
         # id가 없으면 insert, 있으면 replace.
         return _to_domain(await _to_document(employee).save())
+
+    async def delete(self, employee_id: PydanticObjectId) -> bool:
+        document = await EmployeeDocument.get(employee_id)
+        if document is None:
+            return False
+        await document.delete()
+        return True
 
 
 def _to_domain(document: EmployeeDocument) -> Employee:

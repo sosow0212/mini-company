@@ -16,10 +16,29 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def run_task(
-    client: BackendApiClient, *, employee_id: str, kind: str
+    client: BackendApiClient, *, employee_id: str, kind: str, title: str | None = None
 ) -> AsyncIterator["TaskContext"]:
-    task = await client.start_task(employee_id=employee_id, kind=kind)
-    context = TaskContext(client, task_id=task.id)
+    """워커가 **스스로 시작하는** 작업(스케줄 실행). 작업을 만들고 마감까지 책임진다."""
+    task = await client.start_task(employee_id=employee_id, kind=kind, title=title)
+    async with _finishing(client, task.id) as context:
+        yield context
+
+
+@asynccontextmanager
+async def attach_to_task(client: BackendApiClient, task_id: str) -> AsyncIterator["TaskContext"]:
+    """**사람이 지시해 이미 RUNNING인** 작업에 붙는다(클레임한 경우).
+
+    시작을 다시 만들지 않는 이유: 클레임 시점에 백엔드가 이미 RUNNING으로 전이시켰다.
+    여기서 start_task를 또 부르면 작업이 두 개가 되고 직원은 EmployeeBusy로 막힌다.
+    """
+    async with _finishing(client, task_id) as context:
+        yield context
+
+
+@asynccontextmanager
+async def _finishing(client: BackendApiClient, task_id: str) -> AsyncIterator["TaskContext"]:
+    """본문의 성패를 작업 마감으로 옮긴다. 두 진입점이 이 규칙을 공유한다."""
+    context = TaskContext(client, task_id=task_id)
     try:
         yield context
     except BaseException as exc:
@@ -27,9 +46,9 @@ async def run_task(
         # KeyboardInterrupt는 BaseException 상속이라, Exception만 잡으면 취소·Ctrl+C에서
         # 마감이 유실되고 작업은 RUNNING·직원은 WORKING에 남는다.
         # 취소 이후에도 이 await는 완료된다(취소는 한 번만 주입된다).
-        await _finish_safely(client, task.id, status="FAILED", error=f"{type(exc).__name__}: {exc}")
+        await _finish_safely(client, task_id, status="FAILED", error=f"{type(exc).__name__}: {exc}")
         raise
-    await _finish_safely(client, task.id, status="SUCCEEDED", summary=context.summary)
+    await _finish_safely(client, task_id, status="SUCCEEDED", summary=context.summary)
 
 
 async def _finish_safely(

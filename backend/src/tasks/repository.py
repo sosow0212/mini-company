@@ -25,6 +25,14 @@ class TaskRepositoryProtocol(Protocol):
 
     async def list_running_started_before(self, moment: datetime) -> list[Task]: ...
 
+    async def claim_oldest_queued(self, *, started_at: datetime) -> Task | None:
+        """가장 오래 기다린 QUEUED 하나를 RUNNING으로 바꿔 반환한다. 없으면 None.
+
+        **원자적이어야 한다.** 조회 후 저장으로 나누면 워커 둘이 같은 작업을 집어
+        한 작업이 두 번 실행된다(수집이라면 중복 적재, LLM이라면 비용 2배).
+        """
+        ...
+
     async def list(
         self,
         *,
@@ -53,6 +61,25 @@ class TaskRepository:
             TaskDocument.started_at < moment,
         ).to_list()
         return [_task_to_domain(document) for document in documents]
+
+    async def claim_oldest_queued(self, *, started_at: datetime) -> Task | None:
+        """find_one_and_update로 조회와 전이를 한 번에 한다.
+
+        Beanie를 거치지 않고 pymongo 컬렉션을 직접 쓴다 — 이 원자성을 표현하는
+        Beanie API가 없다. 레이어 규칙(Beanie 쿼리는 repository에만)은 지켜진다.
+        """
+        collection = TaskDocument.get_pymongo_collection()
+        document = await collection.find_one_and_update(
+            {"status": TaskStatus.QUEUED.value},
+            {"$set": {"status": TaskStatus.RUNNING.value, "started_at": started_at}},
+            # 먼저 지시한 작업이 먼저 실행된다. 정렬이 없으면 큐가 아니라 무작위 집합이다.
+            sort=[("created_at", pymongo.ASCENDING)],
+            return_document=pymongo.ReturnDocument.AFTER,
+        )
+        if document is None:
+            return None
+        # find_one_and_update는 raw dict를 준다. Document로 다시 감싸 매핑을 한 곳에 둔다.
+        return _task_to_domain(TaskDocument.model_validate(document))
 
     async def list(
         self,
@@ -123,6 +150,7 @@ def _task_to_domain(document: TaskDocument) -> Task:
         id=document.id,
         employee_id=document.employee_id,
         kind=document.kind,
+        title=document.title,
         status=document.status,
         summary=document.summary,
         started_at=document.started_at,
@@ -137,6 +165,7 @@ def _task_to_document(task: Task) -> TaskDocument:
         id=task.id,
         employee_id=task.employee_id,
         kind=task.kind,
+        title=task.title,
         status=task.status,
         summary=task.summary,
         started_at=task.started_at,
