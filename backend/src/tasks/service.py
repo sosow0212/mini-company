@@ -1,6 +1,6 @@
 import logging
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from beanie import PydanticObjectId
 from bson.errors import InvalidId
@@ -9,6 +9,7 @@ from src.employees.constants import EmployeeStatus
 from src.employees.domain import Employee
 from src.employees.exceptions import EmployeeNotFound
 from src.employees.repository import EmployeeRepositoryProtocol
+from src.exceptions import AppError
 from src.pagination import CursorPage
 from src.realtime.bus import EventBus
 from src.realtime.schemas import (
@@ -196,6 +197,43 @@ class TaskService:
             )
             await self._publish_status(released)
         return TaskResponse.from_domain(finished)
+
+    # ─── 운영 (Phase 9) ────────────────────────────────────────
+
+    async def reap_stale_tasks(self, *, timeout_seconds: float) -> list[TaskResponse]:
+        """오래 매달린 RUNNING 작업을 CANCELLED로 마감한다.
+
+        이게 없으면 워커가 SIGKILL로 죽었을 때 직원의 `current_task_id`가 영구히 남아
+        그 직원은 다시 일할 수 없다(EmployeeBusy). "하루 무인 운영"이 성립하려면
+        사람이 개입하지 않고 이 상태가 풀려야 한다.
+
+        FAILED가 아니라 CANCELLED인 이유: 작업이 실패한 게 아니라 **결과를 알 수 없다.**
+        FAILED로 두면 직원이 ERROR가 되어 3D 씬에 장애로 표시되고, 그건 사실이 아니다.
+        """
+        cutoff = datetime.now(UTC) - timedelta(seconds=timeout_seconds)
+        stale = await self._tasks.list_running_started_before(cutoff)
+        if stale == []:
+            return []
+
+        logger.warning(
+            "멈춘 작업을 회수한다", extra={"count": len(stale), "cutoff": cutoff.isoformat()}
+        )
+        reaped: list[TaskResponse] = []
+        for task in stale:
+            if task.id is None:
+                continue
+            # 개별 실패가 나머지 회수를 막지 않는다. 한 건이 이상해도 다른 직원은 풀려야 한다.
+            try:
+                reaped.append(
+                    await self.finish_task(
+                        task.id,
+                        outcome=TaskStatus.CANCELLED,
+                        error=f"{timeout_seconds:.0f}초를 넘겨 자동 회수됨",
+                    )
+                )
+            except AppError:
+                logger.exception("작업 회수 실패", extra={"task_id": str(task.id)})
+        return reaped
 
     async def _publish_status(self, employee: Employee) -> None:
         """직원 상태 변경을 3D 씬에 알린다. 아바타 색이 이 이벤트로 바뀐다."""

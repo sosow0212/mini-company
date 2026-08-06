@@ -47,8 +47,11 @@ dev-front: ## 프론트 개발 서버. /api를 백엔드로 프록시하므로 �
 test-front: ## 프론트 단위 테스트 + 타입체크.
 	cd frontend && npm run typecheck && npm test
 
-worker-demo: ## 더미 수집 워커 1회 실행. 백엔드(up-all 또는 dev)와 시드가 먼저 필요하다.
+worker-demo: ## 수집 워커 1회 실행. 백엔드(up-all 또는 dev)와 시드가 먼저 필요하다.
 	cd workers && .venv/bin/python -m src.employees.collector
+
+scheduler: ## 주기 실행(기본: 매일 11시). Ctrl+C로 종료. K8s에서는 CronJob이 대체한다.
+	cd workers && .venv/bin/python -m src.scheduler
 
 lint: ## backend와 workers 양쪽. 한쪽만 검사하면 다른 쪽이 조용히 썩는다.
 	cd backend && .venv/bin/ruff check . && .venv/bin/ruff format --check .

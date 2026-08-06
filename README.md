@@ -19,6 +19,9 @@ AI 직원(에이전트)이 수행한 작업을 3D 오피스로 시각화하고, 
 | 4     | `llm` 게이트웨이 (프로파일·단가·비용 자동 기록·폴백), MiniMax/Anthropic 어댑터 | 완료 |
 | 5     | `realtime` EventBus + WS 허브 + `/office/snapshot`         | 완료 |
 | 6     | 프론트 Three.js 씬 + 아바타 + 말풍선 + 원장 패널                       | 완료 |
+| 7     | `knowledge` 적재(HTML/PDF/MD/줄글) + 메타 추출 + 청킹 전략 3종 + Milvus 검색 | 완료 |
+| 8     | `chat` RAG 챗봇 + 출처 인용 + 원장 툴                              | 완료 |
+| 9     | 스케줄러, 멈춘 작업 자동 회수, 연결 재시도, JSON 로깅, graceful shutdown     | 완료 |
 
 ## 실행
 
@@ -299,6 +302,61 @@ POST /internal/v1/knowledge/documents/{id}/reindex   {"chunkingStrategy": "headi
   나면 모델이 숫자를 지어낸다. 요약은 열 줄이 안 되므로 항상 넣는 편이 싸다.
 - 답변에 근거 없는 숫자가 있으면 경고 로그를 남긴다(하드 차단은 오탐이 많다 — §7.3).
 - 챗봇 비용도 원장에 기록된다(`employee_id: null`) — 챗봇 비용도 회사 손익이다.
+
+
+## 무인 운영 (Phase 9)
+
+사람이 워커를 직접 실행하지 않아도 하루가 돌아가야 한다. 네 가지가 그것을 지탱한다.
+
+### 스케줄러 — "매일 11시에 해라"
+
+```bash
+make scheduler                              # 로컬(기본: 0 11 * * *, Asia/Seoul)
+docker compose --profile scheduler up -d    # 컨테이너
+```
+
+`workers/src/scheduler.py`가 크론으로 잡을 띄운다. **새 주기 작업은 `_JOBS`에 한 줄**이고,
+K8s로 가면 이 파일을 지우고 CronJob이 같은 함수를 `python -m src.employees.collector`로
+한 번 호출한다(§10.2) — 그래서 잡 본체와 스케줄링을 분리했다.
+
+- `max_instances=1` — 앞 실행이 돌고 있으면 새로 띄우지 않는다. 같은 직원에게 두 작업을
+  시키면 `EmployeeBusy`(409)가 난다.
+- `coalesce` + `misfire_grace_time` — 프로세스가 잠깐 멈췄다 살아나면 놓친 실행을 한 번만 따라잡는다.
+- 잡이 예외를 던져도 스케줄러는 죽지 않는다. 죽으면 이후 **모든** 주기 작업이 멈춘다.
+
+### 멈춘 작업 자동 회수
+
+워커가 SIGKILL로 죽으면 작업이 `RUNNING`에 남고 직원의 `currentTaskId`가 풀리지 않아
+**그 직원은 영구히 `EmployeeBusy`가 된다.** 사람 개입 없이 이게 풀려야 무인 운영이 성립한다.
+
+백엔드가 `REAPER_INTERVAL_SECONDS`마다 `STALE_TASK_TIMEOUT_SECONDS`를 넘긴 작업을
+`CANCELLED`로 마감한다. **`FAILED`가 아닌 이유:** 작업이 실패한 게 아니라 결과를 알 수 없다.
+`FAILED`면 직원이 `ERROR`가 되어 3D 씬에 장애로 표시되는데 그건 사실이 아니다.
+
+**회수를 워커가 아니라 백엔드가 하는 이유:** 워커가 죽어서 생긴 문제를 워커에게 맡기면
+"죽은 프로세스가 자기 죽음을 정리한다"는 순환이 된다. replica 2에서 중복 실행되더라도
+상태 전이 검증(`InvalidTaskTransition`)이 분산 락 역할을 한다.
+
+### 연결 재시도 — 무엇을 재시도하지 않는가
+
+`ConnectError`/`ConnectTimeout`만 재시도한다(요청이 서버에 도달하지 못했음이 확실하다).
+**5xx와 읽기 타임아웃은 재시도하지 않는다** — 서버가 이미 처리했을 수 있고, 그러면:
+
+- `POST /tasks` 재시도 → 작업이 두 개 생기고 직원 상태가 갈라진다
+- `POST /llm/completions` 재시도 → **비용이 두 번** 든다
+
+### JSON 로깅과 graceful shutdown
+
+로그는 stdout에 **JSON 한 줄**이다(§10.1). 여러 줄로 나가면 수집기가 이벤트 하나를
+여러 개로 쪼개므로, 스택트레이스도 `error` 한 필드에 담는다. uvicorn 핸들러를 비워
+접근 로그까지 같은 형식으로 낸다. `LOG_FORMAT=console`로 로컬 디버깅 형식을 쓸 수 있다.
+
+SIGTERM 순서: **회수 루프 정지 → WS 정리(코드 1001) → 커넥션 종료.** 순서를 바꾸면 이미
+닫힌 Mongo에 회수 쿼리가 나간다. WS를 정상 코드로 닫으면 브라우저가 즉시 재연결해 다른
+replica에 붙는다 — 닫지 않고 죽으면 네트워크 오류로 보고 지수 백오프에 들어간다.
+
+스케줄러는 **SIGTERM 핸들러를 직접 등록한다.** asyncio는 기본으로 설치하지 않아서, 없으면
+프로세스가 즉시 죽고 진행 중 잡이 항상 잘린다(컨테이너가 보내는 신호가 바로 SIGTERM이다).
 
 ## 포트
 

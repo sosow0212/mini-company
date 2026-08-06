@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from src.logging_setup import configure_logging
 from src.runtime.client import BackendApiClient
 from src.runtime.config import get_settings
 from src.runtime.harness import run_task
@@ -139,7 +140,9 @@ async def _collect(client: BackendApiClient, task, *, employee_id: str) -> tuple
 async def run() -> int:
     settings = get_settings()
     async with BackendApiClient(
-        base_url=settings.backend_base_url, worker_api_key=settings.worker_api_key
+        base_url=settings.backend_base_url,
+        worker_api_key=settings.worker_api_key,
+        max_attempts=settings.max_attempts,
     ) as client:
         employee_id = await client.find_employee_id(settings.employee_name)
         if employee_id is None:
@@ -159,7 +162,8 @@ async def run() -> int:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO)
+    settings = get_settings()
+    configure_logging(level=settings.log_level, log_format=settings.log_format)
     raise SystemExit(asyncio.run(run()))
 
 

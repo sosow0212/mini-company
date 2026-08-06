@@ -2,8 +2,9 @@ name: mini-company
 
 # 프로파일로 분리한다. 개발 중엔 인프라만 컨테이너로 띄우고(make up)
 # 앱은 호스트에서 실행하는 편이 반복 속도가 빠르다.
-#   --profile infra : mongo / milvus 스택만
-#   --profile app   : 위 전부 + backend
+#   --profile infra     : mongo / milvus 스택만
+#   --profile app       : 위 전부 + backend + frontend
+#   --profile scheduler : 인프라 + backend + 주기 실행 워커(§10.2, K8s에선 CronJob)
 #
 # 인프라 서비스가 두 프로파일에 모두 속하는 이유: backend의 depends_on 대상이
 # app 프로파일에 없으면 compose가 "undefined service"로 거부한다.
@@ -11,7 +12,7 @@ name: mini-company
 services:
   mongo:
     image: mongo:7.0
-    profiles: [infra, app]
+    profiles: [infra, app, scheduler]
     # standalone은 트랜잭션·change stream을 못 쓴다. 단일 노드라도 replica set으로 띄운다.
     command: ["--replSet", "rs0", "--bind_ip_all"]
     # 호스트에 로컬 설치된 mongod가 127.0.0.1:27017을 점유하고 있으면, 호스트에서
@@ -32,7 +33,7 @@ services:
   # 종료가 정상 동작이므로 healthcheck를 두지 않는다(다른 서비스는 필수).
   mongo-init:
     image: mongo:7.0
-    profiles: [infra, app]
+    profiles: [infra, app, scheduler]
     restart: "no"
     depends_on:
       mongo: { condition: service_started }
@@ -48,7 +49,7 @@ services:
 
   etcd:
     image: quay.io/coreos/etcd:v3.5.18
-    profiles: [infra, app]
+    profiles: [infra, app, scheduler]
     environment:
       ETCD_AUTO_COMPACTION_MODE: revision
       ETCD_AUTO_COMPACTION_RETENTION: "1000"
@@ -64,7 +65,7 @@ services:
 
   minio:
     image: minio/minio:RELEASE.2024-12-18T13-15-44Z
-    profiles: [infra, app]
+    profiles: [infra, app, scheduler]
     environment:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
@@ -78,7 +79,7 @@ services:
 
   milvus:
     image: milvusdb/milvus:v2.6.9
-    profiles: [infra, app]
+    profiles: [infra, app, scheduler]
     command: ["milvus", "run", "standalone"]
     security_opt: ["seccomp:unconfined"]
     environment:
@@ -103,7 +104,7 @@ services:
     build:
       context: .
       dockerfile: deploy/docker/backend.Dockerfile
-    profiles: [app]
+    profiles: [app, scheduler]
     env_file: [.env]
     environment:
       # .env는 호스트 기준 주소를 담고 있다. 컨테이너 안에서는 서비스명으로 붙는다.
@@ -128,6 +129,21 @@ services:
       retries: 6
       start_period: 5s
 
+  # 주기 실행. K8s에서는 CronJob이 이 서비스를 대체한다(§10.2).
+  # 기본 프로파일에 넣지 않는다 — `--profile scheduler`로 명시해야 뜬다. 개발 중에
+  # 매일 11시를 기다릴 이유가 없고, 실수로 켜두면 원인 모를 작업이 생긴다.
+  scheduler:
+    build:
+      context: .
+      dockerfile: deploy/docker/worker.Dockerfile
+    profiles: [scheduler]
+    env_file: [.env]
+    environment:
+      BACKEND_BASE_URL: http://backend:8000
+    depends_on:
+      backend: { condition: service_healthy }
+    restart: unless-stopped
+
   frontend:
     build:
       context: .
@@ -138,7 +154,9 @@ services:
     depends_on:
       backend: { condition: service_healthy }
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/"]
+      # localhost가 아니라 127.0.0.1이다 — 컨테이너 안에서 localhost는 ::1로 먼저
+      # 해석되고 nginx는 IPv4만 listen하므로 연결이 거부된다(응답은 정상인데 unhealthy).
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080/"]
       interval: 10s
       timeout: 5s
       retries: 6

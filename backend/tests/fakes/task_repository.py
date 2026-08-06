@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from beanie import PydanticObjectId
 
 from src.tasks.constants import TaskStatus
@@ -18,6 +20,17 @@ class InMemoryTaskRepository:
 
     async def get(self, task_id: PydanticObjectId) -> Task | None:
         return self._by_id.get(task_id)
+
+    # 실제 구현과 같은 이유로 list()보다 앞에 둔다 — 클래스 본문에서 list 메서드를
+    # 정의하면 그 뒤부터 내장 list가 가려져 list[Task] 표기가 깨진다.
+    async def list_running_started_before(self, moment: datetime) -> list[Task]:
+        return [
+            task
+            for task in self._by_id.values()
+            if task.status is TaskStatus.RUNNING
+            and task.started_at is not None
+            and task.started_at < moment
+        ]
 
     async def list(
         self,

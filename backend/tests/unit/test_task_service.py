@@ -245,3 +245,116 @@ async def test_list_activities_raises_invalid_cursor_when_cursor_belongs_to_anot
 
     with pytest.raises(InvalidPaginationCursor):
         await service.list_activities(employee.id, limit=20, cursor=str(foreign_activity.id))
+
+
+# ─── 멈춘 작업 회수 (Phase 9) ─────────────────────────────────
+
+
+async def test_reap_cancels_running_task_older_than_timeout(make_employee, make_task) -> None:
+    """워커가 SIGKILL로 죽으면 작업이 RUNNING에 남는다. 사람 개입 없이 풀려야 한다."""
+    employee = make_employee("노아")
+    stale = make_task(
+        employee.id, status=TaskStatus.RUNNING, started_at=datetime.now(UTC) - timedelta(hours=2)
+    )
+    employee = employee.model_copy(
+        update={"status": EmployeeStatus.WORKING, "current_task_id": stale.id}
+    )
+    service, _, task_repo, _ = _service(employees=[employee], tasks=[stale])
+
+    reaped = await service.reap_stale_tasks(timeout_seconds=900)
+
+    assert [task.id for task in reaped] == [str(stale.id)]
+    persisted = await task_repo.get(stale.id)
+    assert persisted is not None and persisted.status is TaskStatus.CANCELLED
+
+
+async def test_reap_releases_the_employee_so_it_can_work_again(make_employee, make_task) -> None:
+    """회수의 목적이 이것이다 — current_task_id가 남으면 EmployeeBusy가 영구화된다."""
+    employee = make_employee("노아")
+    stale = make_task(
+        employee.id, status=TaskStatus.RUNNING, started_at=datetime.now(UTC) - timedelta(hours=2)
+    )
+    employee = employee.model_copy(
+        update={"status": EmployeeStatus.WORKING, "current_task_id": stale.id}
+    )
+    service, employee_repo, _, _ = _service(employees=[employee], tasks=[stale])
+
+    await service.reap_stale_tasks(timeout_seconds=900)
+
+    released = await employee_repo.get(employee.id)
+    assert released is not None
+    assert released.current_task_id is None
+    # 회수는 실패가 아니라 "결과를 알 수 없음"이다. ERROR면 3D 씬에 장애로 표시된다.
+    assert released.status is EmployeeStatus.IDLE
+    # 그리고 실제로 다시 일할 수 있어야 한다.
+    await service.start_task(employee_id=employee.id, kind="collect_market_data")
+
+
+async def test_reap_leaves_recent_running_tasks_alone(make_employee, make_task) -> None:
+    """정상 진행 중인 작업을 회수하면 워커가 일하는 중에 상태가 뒤집힌다."""
+    employee = make_employee("노아")
+    fresh = make_task(
+        employee.id,
+        status=TaskStatus.RUNNING,
+        started_at=datetime.now(UTC) - timedelta(seconds=30),
+    )
+    service, _, task_repo, _ = _service(employees=[employee], tasks=[fresh])
+
+    reaped = await service.reap_stale_tasks(timeout_seconds=900)
+
+    assert reaped == []
+    persisted = await task_repo.get(fresh.id)
+    assert persisted is not None and persisted.status is TaskStatus.RUNNING
+
+
+async def test_reap_ignores_already_finished_tasks(make_employee, make_task) -> None:
+    employee = make_employee("노아")
+    done = make_task(
+        employee.id,
+        status=TaskStatus.SUCCEEDED,
+        started_at=datetime.now(UTC) - timedelta(hours=5),
+        finished_at=datetime.now(UTC) - timedelta(hours=4),
+    )
+    service, _, _, _ = _service(employees=[employee], tasks=[done])
+
+    assert await service.reap_stale_tasks(timeout_seconds=900) == []
+
+
+async def test_reap_returns_empty_when_nothing_is_stale() -> None:
+    service, _, _, _ = _service()
+
+    assert await service.reap_stale_tasks(timeout_seconds=900) == []
+
+
+async def test_reap_records_the_reason_in_the_task_error(make_employee, make_task) -> None:
+    """왜 취소됐는지 남기지 않으면 운영자가 원인을 추적할 수 없다."""
+    employee = make_employee("노아")
+    stale = make_task(
+        employee.id, status=TaskStatus.RUNNING, started_at=datetime.now(UTC) - timedelta(hours=2)
+    )
+    service, _, _, _ = _service(employees=[employee], tasks=[stale])
+
+    reaped = await service.reap_stale_tasks(timeout_seconds=900)
+
+    assert reaped[0].error is not None
+    assert "자동 회수" in reaped[0].error
+
+
+async def test_reap_continues_after_one_task_fails(make_employee, make_task) -> None:
+    """한 건이 이상해도 다른 직원은 풀려야 한다."""
+    first = make_employee("첫째")
+    second = make_employee("둘째")
+    old = datetime.now(UTC) - timedelta(hours=2)
+    # 존재하지 않는 직원을 가리키는 작업 — finish_task가 직원을 찾지 못한다.
+    orphan = make_task(PydanticObjectId(), status=TaskStatus.RUNNING, started_at=old)
+    normal = make_task(second.id, status=TaskStatus.RUNNING, started_at=old)
+    second = second.model_copy(
+        update={"status": EmployeeStatus.WORKING, "current_task_id": normal.id}
+    )
+    service, employee_repo, _, _ = _service(employees=[first, second], tasks=[orphan, normal])
+
+    reaped = await service.reap_stale_tasks(timeout_seconds=900)
+
+    assert len(reaped) == 2
+    released = await employee_repo.get(second.id)
+    assert released is not None and released.current_task_id is None

@@ -33,13 +33,18 @@ def _new_task(
     *,
     status: TaskStatus = TaskStatus.RUNNING,
     created_at: datetime = _BASE,
+    started_at: datetime | None = None,
 ) -> Task:
-    """id 없이 만든다. 저장은 repository.save가 담당한다."""
+    """id 없이 만든다. 저장은 repository.save가 담당한다.
+
+    QUEUED 작업은 `started_at`이 없다 — 아직 시작하지 않았기 때문이다. 회수 쿼리가
+    started_at을 기준으로 삼으므로 이 구분이 테스트 결과를 바꾼다.
+    """
     return Task(
         employee_id=employee_id or PydanticObjectId(),
         kind="collect_market_data",
         status=status,
-        started_at=created_at,
+        started_at=None if status is TaskStatus.QUEUED else (started_at or created_at),
         created_at=created_at,
     )
 
@@ -148,6 +153,35 @@ class TaskRepositoryContract:
 
         assert len(found) == 1
         assert found[0].employee_id == employee_id
+
+    async def test_list_running_started_before_finds_only_stale_running(
+        self, repository: TaskRepositoryProtocol
+    ) -> None:
+        """회수 대상 쿼리. fake와 실제 Mongo가 같은 기준으로 골라야 한다 —
+        갈라지면 한쪽에서만 직원이 풀린다.
+        """
+        old = datetime.now(UTC) - timedelta(hours=2)
+        recent = datetime.now(UTC) - timedelta(seconds=10)
+        stale = await repository.save(_new_task(status=TaskStatus.RUNNING, started_at=old))
+        await repository.save(_new_task(status=TaskStatus.RUNNING, started_at=recent))
+        await repository.save(_new_task(status=TaskStatus.SUCCEEDED, started_at=old))
+        await repository.save(_new_task(status=TaskStatus.QUEUED))
+
+        found = await repository.list_running_started_before(
+            datetime.now(UTC) - timedelta(minutes=15)
+        )
+
+        assert [task.id for task in found] == [stale.id]
+
+    async def test_list_running_started_before_ignores_tasks_without_start_time(
+        self, repository: TaskRepositoryProtocol
+    ) -> None:
+        """QUEUED 작업은 started_at이 없다. 스케줄러가 큐를 쌓는 구조에서 회수되면 안 된다."""
+        await repository.save(_new_task(status=TaskStatus.QUEUED))
+
+        found = await repository.list_running_started_before(datetime.now(UTC))
+
+        assert found == []
 
 
 class ActivityRepositoryContract:

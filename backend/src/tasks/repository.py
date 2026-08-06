@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Protocol
 
 import pymongo
@@ -14,9 +15,15 @@ _RECENT_FIRST_TASK = [("created_at", pymongo.DESCENDING), ("_id", pymongo.DESCEN
 
 
 class TaskRepositoryProtocol(Protocol):
-    """service가 의존하는 경계. "없으면 예외"를 판단하지 않고 None을 반환한다."""
+    """service가 의존하는 경계. "없으면 예외"를 판단하지 않고 None을 반환한다.
+
+    `list_running_started_before`가 `list`보다 앞에 있는 이유: 클래스 본문에서 `list`
+    메서드를 정의하면 그 뒤부터 내장 `list`가 가려져 `list[Task]` 표기가 깨진다.
+    """
 
     async def get(self, task_id: PydanticObjectId) -> Task | None: ...
+
+    async def list_running_started_before(self, moment: datetime) -> list[Task]: ...
 
     async def list(
         self,
@@ -34,6 +41,18 @@ class TaskRepository:
     async def get(self, task_id: PydanticObjectId) -> Task | None:
         document = await TaskDocument.get(task_id)
         return _task_to_domain(document) if document is not None else None
+
+    async def list_running_started_before(self, moment: datetime) -> list[Task]:
+        """오래 매달린 RUNNING 작업. 회수 대상을 고르는 쿼리다.
+
+        `started_at`을 기준으로 삼는다 — `created_at`은 QUEUED로 대기한 시간까지 포함해서,
+        스케줄러가 큐를 쌓아두는 구조(Phase 9)에서 정상 작업까지 회수 대상이 된다.
+        """
+        documents = await TaskDocument.find(
+            TaskDocument.status == TaskStatus.RUNNING,
+            TaskDocument.started_at < moment,
+        ).to_list()
+        return [_task_to_domain(document) for document in documents]
 
     async def list(
         self,

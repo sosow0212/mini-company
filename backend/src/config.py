@@ -23,6 +23,20 @@ class Settings(BaseSettings):
 
     app_env: Literal["local", "staging", "prod"] = "local"
     log_level: str = "INFO"
+    # 로그는 stdout에 JSON 한 줄(§10.1). 로컬 디버깅에서만 console을 쓴다.
+    log_format: Literal["json", "console"] = "json"
+
+    # ─── graceful shutdown (Phase 9) ──────────────────────────
+    # SIGTERM 후 진행 중 요청을 기다리는 시간. K8s의 terminationGracePeriodSeconds보다
+    # 짧아야 한다 — 길면 K8s가 SIGKILL로 끊어 이 설정이 무의미해진다.
+    shutdown_grace_seconds: float = 20.0
+
+    # ─── 멈춘 작업 회수 (Phase 9) ─────────────────────────────
+    # 워커가 SIGKILL로 죽으면 작업이 RUNNING에 남고 직원의 current_task_id가 풀리지 않아
+    # 그 직원은 영구히 EmployeeBusy가 된다. 이 시간을 넘긴 작업은 자동으로 마감한다.
+    stale_task_timeout_seconds: float = 900.0
+    # 회수 루프 주기. 0 이하면 루프를 띄우지 않는다(K8s CronJob으로 대체할 때).
+    reaper_interval_seconds: float = 120.0
 
     # 27018: 로컬 설치 mongod(27017)와 compose mongo를 주소로 구분한다.
     mongo_uri: str = "mongodb://localhost:27018/?directConnection=true"
