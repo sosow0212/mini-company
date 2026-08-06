@@ -142,9 +142,23 @@ class ChatService:
         )
 
     def _history(self, conversation: Conversation) -> list[LlmMessage]:
-        """직전 대화만 보낸다. 전체를 보내면 토큰이 대화 길이에 비례해 늘어난다."""
-        recent = conversation.messages[-self._history_limit :]
-        return [LlmMessage(role=message.role.value, content=message.content) for message in recent]
+        """직전 대화만 보낸다. 전체를 보내면 토큰이 대화 길이에 비례해 늘어난다.
+
+        **거절 답변과 그것을 유발한 질문은 빼고 보낸다.** 그 답변은 LLM이 쓴 게 아니라
+        근거를 못 찾아 서버가 넣은 고정 문구인데, 이력에 남으면 모델이 그걸 이 대화의
+        답변 형식으로 읽는다. 실제로 로컬 10.8B 모델은 근거가 충분한 다음 질문에도
+        "자료에 없습니다"를 그대로 따라 썼다 — 큰 모델은 문맥으로 구분하지만 작은 모델은
+        직전 패턴을 모방한다. 어느 쪽이든 이력에 남길 이유가 없는 문구다.
+        """
+        kept: list[LlmMessage] = []
+        for message in conversation.messages[-self._history_limit :]:
+            if message.role is MessageRole.ASSISTANT and not message.grounded:
+                # 짝이 되는 질문도 함께 뺀다. 답 없는 질문만 남으면 그것대로 어색하다.
+                if kept and kept[-1].role == MessageRole.USER.value:
+                    kept.pop()
+                continue
+            kept.append(LlmMessage(role=message.role.value, content=message.content))
+        return kept
 
     async def _append(self, conversation: Conversation, *messages: Message) -> None:
         await self._repository.save(

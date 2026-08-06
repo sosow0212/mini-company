@@ -61,6 +61,17 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr = SecretStr("")
     anthropic_base_url: str = "https://api.anthropic.com/v1"
 
+    # ─── 로컬 LLM (Ollama) ────────────────────────────────────
+    # 키가 없어도 LLM 경로 전체를 실제로 돌릴 수 있는 유일한 수단이다.
+    # 기본이 false인 이유: 켜두면 Ollama가 없는 환경에서 `local` 프로파일이 카탈로그에
+    # 들어가고, 호출할 수 없는 프로파일이 목록에 보이게 된다.
+    ollama_enabled: bool = False
+    ollama_base_url: str = "http://localhost:11434/v1"
+    ollama_model: str = "anpigon/eeve-korean-10.8b:latest"
+    # 로컬 추론은 API 호출보다 한 자릿수 느리다(10.8B 모델이 애플 실리콘에서 대략
+    # 10 tok/s). 공용 타임아웃 60초를 쓰면 긴 답변이 항상 잘린다.
+    ollama_timeout_seconds: float = 300.0
+
     # ─── LLM: 카탈로그·단가 (ConfigMap 대상, 비밀 아님) ────────
     # 비우면 llm/profiles.py의 DEFAULT_PROFILES를 쓴다.
     llm_profiles_json: str | None = None

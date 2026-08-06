@@ -129,6 +129,40 @@ POST  /internal/v1/knowledge/documents/{id}/reindex # 청킹·모델 변경 후 
 MINIMAX_API_KEY=dummy MINIMAX_BASE_URL=http://localhost:18080/v1 make dev
 ```
 
+### 로컬 모델 (Ollama)
+
+API 키 없이 **진짜 LLM으로** 전 경로를 돌리는 방법이다. 목 서버와 달리 실제 생성 품질과
+지연을 그대로 본다.
+
+```bash
+ollama pull anpigon/eeve-korean-10.8b     # 7.7GB
+ollama serve                              # 이미 떠 있으면 생략
+
+# .env
+OLLAMA_ENABLED=true
+CHAT_LLM_PROFILE=local                    # 챗봇이 로컬 모델을 쓰게 한다
+
+make dev
+```
+
+`OLLAMA_ENABLED=true` 하나면 된다. 게이트웨이가 `local` 프로파일과 **단가 0**을 카탈로그에
+자동으로 넣는다 — 둘 중 하나만 빠져도 부팅이 거부되므로, 그 조합을 손으로 쓰게 하지 않는다.
+`LLM_PROFILES_JSON`/`LLM_PRICING_JSON`에 `local`을 직접 정의하면 그쪽이 이긴다.
+
+| 항목 | 값 | 이유 |
+|---|---|---|
+| `OLLAMA_MODEL` | `anpigon/eeve-korean-10.8b:latest` | 한국어 답변 품질이 쓸 만하다 |
+| `OLLAMA_TIMEOUT_SECONDS` | `300` | 공용 60초로는 긴 답변이 늘 잘린다(애플 실리콘 대략 10 tok/s) |
+| 단가 | `0` | 호출당 청구가 실제로 없다. "몰라서 0"이 아니라 "0인 걸 안다" |
+| `local` 프로파일 `max_tokens` | `2,000` | 로컬은 토큰당 시간이 길어 8,000이면 한 번의 채팅이 수 분이다 |
+
+비용 기록 경로는 살아 있다. 원장에 `0원 / ollama/<모델> (local)`로 남아 호출 횟수와
+토큰 수를 추적할 수 있다 — 전기값을 계산하고 싶으면 `LLM_PRICING_JSON`에 단가만 채운다.
+
+**작은 모델에서 드러난 것**: `[1]` 인용 표기를 자주 `[자료]`로 흘린다. 그래도 화면 출처는
+정확한데, `citations`를 LLM 출력 파싱이 아니라 검색 결과로 서버가 채우기 때문이다. 설계가
+모델 품질을 흡수하는 지점이라 그대로 둔다.
+
 ## 숫자 무결성 (§7 — 이 프로젝트의 심장)
 
 - 화면·요약문의 모든 수치는 `ledger_entries`를 서버가 aggregate한 값이다. 워커는 원시 트랜잭션만 기록한다.
