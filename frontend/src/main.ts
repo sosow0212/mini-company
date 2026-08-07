@@ -20,8 +20,11 @@ import { EditDialog } from './ui/EditDialog';
 import { EmployeeDirectoryDialog } from './ui/EmployeeDirectoryDialog';
 import { EmployeePanel } from './ui/EmployeePanel';
 import { HireDialog } from './ui/HireDialog';
+import { KnowledgePanel } from './ui/KnowledgePanel';
 import { LedgerPanel } from './ui/LedgerPanel';
 import { NameTag } from './ui/NameTag';
+import { ScheduleDialog } from './ui/ScheduleDialog';
+import { SchedulePanel } from './ui/SchedulePanel';
 import { SpeechBubble } from './ui/SpeechBubble';
 import { TaskPanel } from './ui/TaskPanel';
 import { TaskResultDialog } from './ui/TaskResultDialog';
@@ -38,11 +41,14 @@ async function main(): Promise<void> {
   const store = new OfficeStore();
   const ledgerPanel = new LedgerPanel(requireElement('ledger-panel'));
   const taskPanel = new TaskPanel(requireElement('task-panel'));
+  const schedulePanel = new SchedulePanel(requireElement('schedule-panel'));
+  const knowledgePanel = new KnowledgePanel(requireElement('knowledge-panel'));
   const connectionBadge = requireElement('connection-badge');
 
   const reloadRoster = async (): Promise<void> => {
     store.replaceWithSnapshot(await fetchSnapshot());
     await taskPanel.refresh();
+    await schedulePanel.refresh();
   };
 
   const emptyState = requireElement('empty-state');
@@ -51,11 +57,16 @@ async function main(): Promise<void> {
   const assignDialog = new AssignDialog();
   const editDialog = new EditDialog();
   const directoryDialog = new EmployeeDirectoryDialog();
+  const scheduleDialog = new ScheduleDialog();
   const taskResultDialog = new TaskResultDialog();
 
   hireDialog.setOnDone(() => void reloadRoster());
   editDialog.setOnDone(() => void reloadRoster());
   assignDialog.setOnDone(() => void taskPanel.refresh());
+  scheduleDialog.setOnDone(() => void schedulePanel.refresh());
+  schedulePanel.setOnAdd(() => {
+    scheduleDialog.show(store.listEmployees().map((view) => view.employee));
+  });
 
   taskPanel.setOnViewResult((task, employeeName) => {
     const employee = store.listEmployees().find((e) => e.employee.name === employeeName)?.employee;
@@ -90,6 +101,21 @@ async function main(): Promise<void> {
     directoryDialog.open();
   });
 
+  // 탭 전환. 선택된 패널만 남기고 나머지는 hidden — 레일 높이를 넘지 않게 한다.
+  const tabs = document.querySelectorAll<HTMLElement>('[data-tab]');
+  const panels = document.querySelectorAll<HTMLElement>('[data-tabpanel]');
+  for (const tab of tabs) {
+    tab.addEventListener('click', () => {
+      const selected = tab.dataset.tab;
+      for (const other of tabs) {
+        other.setAttribute('aria-selected', String(other.dataset.tab === selected));
+      }
+      for (const panel of panels) {
+        panel.hidden = panel.dataset.tabpanel !== selected;
+      }
+    });
+  }
+
   const scene = new OfficeScene(requireElement('scene-host'), (employeeId) => {
     if (employeeId === null) {
       employeePanel.close();
@@ -108,6 +134,9 @@ async function main(): Promise<void> {
 
     scene.syncEmployees(employeeList);
     taskPanel.setEmployees(employeeList);
+    // 진행 중인 작업의 '지금 무슨 단계인가'는 store의 최근 활동에서 온다.
+    taskPanel.setProgress(employees);
+    schedulePanel.setEmployees(employeeList);
     directoryDialog.setEmployees(employeeList);
 
     emptyState.hidden = employees.length > 0;
@@ -145,6 +174,8 @@ async function main(): Promise<void> {
 
   store.replaceWithSnapshot(await fetchSnapshot());
   void taskPanel.refresh();
+  void schedulePanel.refresh();
+  void knowledgePanel.refresh();
   scene.start();
 
   connectOfficeSocket({

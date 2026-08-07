@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     # 회수 루프 주기. 0 이하면 루프를 띄우지 않는다(K8s CronJob으로 대체할 때).
     reaper_interval_seconds: float = 120.0
 
+    # ─── 반복 지시 (매일 몇 시에 무슨 일) ──────────────────────
+    # "매일 11시"의 11시가 어느 지역 시각인가. UTC로 두면 한국 사용자가 등록한 11시가
+    # 저녁 8시에 돈다.
+    schedule_timezone: str = "Asia/Seoul"
+    # 틱 주기. 분 단위 정밀도면 충분하므로 60초로 둔다. 0 이하면 루프를 띄우지 않는다.
+    schedule_tick_seconds: float = 60.0
+
     # 27018: 로컬 설치 mongod(27017)와 compose mongo를 주소로 구분한다.
     mongo_uri: str = "mongodb://localhost:27018/?directConnection=true"
     mongo_db: str = "mini_company"

@@ -52,7 +52,51 @@
 
       <aside class="rail" aria-label="관제 패널">
         <section id="ledger-panel" class="panel" aria-label="원장 요약"></section>
-        <section id="task-panel" class="panel" aria-label="작업 목록"></section>
+        <!--
+          작업·반복 지시·지식을 탭으로 묶는다. 세로로 쌓으면 원장까지 넷이 되어
+          레일 높이를 넘고, 아래 패널은 스크롤해야 보인다 — 보이지 않는 것은 없는 것과
+          같다는 걸 이미 한 번 겪었다.
+        -->
+        <div class="rail__tabs" role="tablist" aria-label="관제 탭">
+          <button type="button" role="tab" data-tab="task" aria-selected="true">작업</button>
+          <button type="button" role="tab" data-tab="schedule" aria-selected="false">
+            반복 지시
+          </button>
+          <button type="button" role="tab" data-tab="knowledge" aria-selected="false">
+            지식
+          </button>
+        </div>
+        <section
+          id="task-panel"
+          class="panel"
+          data-tabpanel="task"
+          role="tabpanel"
+          aria-label="작업 목록"
+        ></section>
+        <!--
+          반복 지시: "매일 09:00 자료 수집" 같은 규칙. 시각이 되면 백엔드가 작업을
+          만들고 에이전트가 집어간다 — 사람이 직접 시킨 일과 같은 경로다.
+        -->
+        <section
+          id="schedule-panel"
+          class="panel"
+          data-tabpanel="schedule"
+          role="tabpanel"
+          aria-label="반복 지시"
+          hidden
+        ></section>
+        <!--
+          지식 베이스: 수집 작업이 실제로 무엇을 적재했는지. RAG 챗봇이 근거로 쓰는
+          바로 그 목록이라, 여기가 비어 있으면 챗봇도 "자료에 없습니다"만 답한다.
+        -->
+        <section
+          id="knowledge-panel"
+          class="panel"
+          data-tabpanel="knowledge"
+          role="tabpanel"
+          aria-label="지식 베이스"
+          hidden
+        ></section>
         <p class="rail__hint">
           💡 직원을 클릭하거나 상단 <strong>직원 목록</strong>을 누르면 직원 정보와 작업 이력을 볼 수 있습니다.
         </p>

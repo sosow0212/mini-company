@@ -6,6 +6,7 @@ from src.config import Settings
 from src.employees.models import EmployeeDocument
 from src.knowledge.models import SourceDocumentDocument
 from src.ledger.models import LedgerEntryDocument
+from src.schedules.models import ScheduleDocument
 from src.tasks.models import ActivityDocument, TaskDocument
 
 _SERVER_SELECTION_TIMEOUT_MS = 3000
@@ -19,6 +20,7 @@ DOCUMENT_MODELS = [
     LedgerEntryDocument,
     SourceDocumentDocument,
     ConversationDocument,
+    ScheduleDocument,
 ]
 
 

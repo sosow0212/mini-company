@@ -252,3 +252,269 @@
   font-size: var(--text-tag);
   line-height: 1.5;
 }
+
+/* ── 진행 표시 ── */
+
+/*
+ * 진행 중임을 알리는 점. 애니메이션이 유일한 "살아 있음"의 신호라, 정지 화면에서
+ * 멈춘 작업과 도는 작업을 구별하게 해준다. reduced-motion에서는 global.css의
+ * 전역 규칙이 지속시간을 0으로 눌러 깜빡임 없이 표시만 남는다.
+ */
+.pulse {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-inline-end: 0.25rem;
+  border-radius: 50%;
+  background: var(--status-working);
+  animation: pulse-fade 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse-fade {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* 진행 중 작업의 "현재 단계". 결과(detail)와 달리 강조해서 눈이 먼저 간다. */
+.task-list__step {
+  margin: 0.3rem 0 0;
+  padding-inline-start: 0.5rem;
+  border-inline-start: 2px solid var(--status-working);
+  color: var(--text);
+  font-size: var(--text-tag);
+  line-height: 1.55;
+}
+
+.task-list__elapsed {
+  margin-inline-end: 0.5rem;
+  color: var(--status-working);
+  font-variant-numeric: tabular-nums;
+}
+
+.task-list__hint {
+  margin-inline-end: 0.5rem;
+  color: var(--status-blocked);
+}
+
+.panel__head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-tight);
+}
+
+/* ── 반복 지시 ── */
+#schedule-panel,
+#knowledge-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 22rem;
+  overflow: hidden;
+}
+
+.schedule-list,
+.doc-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-tight);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.schedule-list li {
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--line);
+  border-inline-start: 3px solid var(--status-working);
+  border-radius: var(--radius-small);
+  background: var(--surface-panel);
+}
+
+/* 꺼둔 지시는 색을 뺀다. 목록에 남아 있되 "지금은 안 돈다"가 한눈에 보여야 한다. */
+.schedule-list li[data-enabled='false'] {
+  border-inline-start-color: var(--line-strong);
+  opacity: 0.6;
+}
+
+.schedule-list__main {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gap-tight);
+}
+
+.schedule-list__time {
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.schedule-list__what {
+  display: flex;
+  flex-direction: column;
+  font-size: var(--text-label);
+}
+
+.schedule-list__title {
+  color: var(--text-dim);
+  font-size: var(--text-tag);
+}
+
+.schedule-list__foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-block-start: 0.25rem;
+  color: var(--text-faint);
+  font-size: var(--text-tag);
+}
+
+.schedule-list__foot div {
+  display: flex;
+  gap: var(--gap-tight);
+}
+
+/* ── 지식 베이스 ── */
+.doc-list__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--gap-tight);
+  width: 100%;
+  padding: 0.45rem 0.625rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: var(--surface-panel);
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-label);
+  text-align: start;
+  cursor: pointer;
+}
+
+.doc-list__row:hover {
+  border-color: var(--text-faint);
+}
+
+.doc-list__row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.doc-list__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-list__badge {
+  flex: none;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-size: var(--text-tag);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 인덱싱 전에는 검색에 잡히지 않는다. 색으로 구분해 "왜 챗봇이 못 찾지"를 막는다. */
+.doc-list__badge[data-indexed='false'] {
+  background: color-mix(in oklab, var(--status-blocked) 15%, transparent);
+  color: var(--status-blocked);
+}
+
+.doc-list__detail {
+  padding: 0.5rem 0.625rem 0.625rem;
+  border: 1px solid var(--line);
+  border-block-start: 0;
+  border-end-start-radius: var(--radius-small);
+  border-end-end-radius: var(--radius-small);
+  background: var(--surface-raised);
+  font-size: var(--text-tag);
+}
+
+.doc-list__desc {
+  margin: 0 0 0.4rem;
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+
+.doc-list__detail dl {
+  display: grid;
+  grid-template-columns: 3.5rem 1fr;
+  gap: 0.15rem var(--gap-tight);
+  margin: 0;
+}
+
+.doc-list__detail dt {
+  color: var(--text-faint);
+}
+
+.doc-list__detail dd {
+  margin: 0;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.doc-list__link {
+  display: inline-block;
+  margin-block-start: 0.4rem;
+  color: var(--accent);
+}
+
+/* ── 레일 탭 ── */
+.rail__tabs {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: var(--surface-panel);
+}
+
+.rail__tabs button {
+  flex: 1 1 0;
+  padding: 0.35rem 0.5rem;
+  border: 0;
+  border-radius: calc(var(--radius-small) - 2px);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--text-label);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.rail__tabs button:hover {
+  color: var(--text);
+}
+
+.rail__tabs button[aria-selected='true'] {
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: var(--shadow-card);
+}
+
+.rail__tabs button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* 탭 안에서는 패널이 남은 높이를 나눠 갖는다. 고정 max-height는 필요 없다. */
+#task-panel,
+#schedule-panel,
+#knowledge-panel {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+}
