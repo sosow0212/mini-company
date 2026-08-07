@@ -41,7 +41,11 @@ test-e2e: ## e2e 테스트. 인프라 필요(make up).
 test-worker: ## 워커 단위 테스트. 인프라 불필요.
 	cd workers && .venv/bin/pytest tests
 
-dev-front: ## 프론트 개발 서버. /api를 백엔드로 프록시하므로 백엔드가 먼저 필요하다.
+dev-front: ## 프론트 개발 서버(핫리로드). 저장하면 즉시 반영된다 — 빌드가 필요 없다.
+	# 컨테이너 프론트를 먼저 내린다. 둘 다 뜨면 5173은 정적 빌드가 잡고 개발 서버는
+	# 다른 포트로 밀린다. 그 상태로 5173을 보면 코드를 고쳐도 화면이 그대로다.
+	# `-` 접두사: 컨테이너가 없거나 이미 내려가 있어도 계속 진행한다.
+	-$(COMPOSE) stop frontend
 	cd frontend && npm run dev
 
 test-front: ## 프론트 단위 테스트 + 타입체크.

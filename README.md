@@ -70,13 +70,30 @@ make up-all
 open http://localhost:5173        # 3D 관제실
 ```
 
-프론트를 따로 개발할 때는 백엔드가 먼저 떠 있어야 한다(`/api`를 프록시한다):
+### 프론트 개발 — 빌드하지 않는다
+
+**프론트 코드를 고칠 때는 `make dev-front`를 쓴다.** 저장하면 즉시 반영된다.
 
 ```bash
 cd frontend && npm install
-make dev-front                    # http://localhost:5173
+make dev-front                    # http://localhost:5173 (핫리로드)
 make test-front                   # 타입체크 + 단위 테스트
 ```
+
+백엔드가 먼저 떠 있어야 한다 — 개발 서버가 `/api`를 그쪽으로 프록시한다.
+
+| | 주소 | 반영 방식 |
+|---|---|---|
+| **개발** `make dev-front` | 5173 | 저장 즉시 (HMR) |
+| **배포 확인** `docker compose --profile app up -d --build frontend` | 5173 | 재빌드 필요 |
+
+같은 5173을 쓴다. 둘을 동시에 띄우지 않기 위해서다 — `make dev-front`가 컨테이너
+프론트를 먼저 내리고, vite는 `strictPort`라 포트가 막혀 있으면 다른 번호로 밀리지 않고
+실패한다. 밀려서 뜨면 5173의 **정적 빌드**를 보면서 "코드를 고쳐도 화면이 안 바뀐다"고
+헤매게 된다.
+
+컨테이너 프론트는 nginx가 빌드 결과를 서빙하므로 프로덕션 동작(캐시 헤더, 번들 크기,
+`/api` 프록시)을 확인할 때만 쓴다.
 
 더미 워커 1회 실행 (백엔드와 시드가 먼저):
 

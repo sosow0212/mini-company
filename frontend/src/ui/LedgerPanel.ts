@@ -1,14 +1,10 @@
 /**
- * 원장 패널 — 서버가 계산한 문자열만 렌더링한다.
- *
- * 이 파일에 `+`, `*`, `reduce`가 등장하면 ADR-006 위반이다. net도 서버가 보낸 값을 쓴다.
- * 허용되는 변환은 천 단위 콤마뿐이고, 그건 `format.ts`가 문자열로 처리한다.
+ * 원장 패널 (Ledger Panel) — 서버가 계산한 수치 문자열만 렌더링합니다 (ADR-006 준수).
  */
 
 import type { LedgerCategory, LedgerSummary } from '../api/types';
 import { categoryLabel, withThousandsSeparators } from './format';
 
-/** 표시 순서를 고정한다. 객체 키 순서에 화면 배치를 의존하지 않는다. */
 const ROWS: readonly LedgerCategory[] = [
   'REVENUE',
   'COST',
@@ -26,7 +22,7 @@ export class LedgerPanel {
   constructor(private readonly host: HTMLElement) {
     this.host.innerHTML = `
       <header class="panel__head">
-        <h2 class="panel__title">원장</h2>
+        <h2 class="panel__title">📊 원장 요약</h2>
         <span class="panel__hint" data-period>—</span>
       </header>
       <div class="figure">
@@ -54,9 +50,9 @@ export class LedgerPanel {
   render(summary: LedgerSummary | null): void {
     if (summary === null) return;
 
-    this.require('[data-period]').textContent = summary.period;
+    this.require('[data-period]').textContent = summary.period.toUpperCase();
     this.netValue.textContent = withThousandsSeparators(summary.net);
-    // 부호는 서버 문자열에서 읽는다. 값을 비교 연산하지 않는다.
+
     const negative = summary.net.startsWith('-');
     this.netSign.textContent = negative ? '' : '+';
     this.netValue.parentElement?.setAttribute('data-negative', String(negative));

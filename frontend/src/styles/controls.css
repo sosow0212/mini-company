@@ -1,42 +1,38 @@
 /*
- * 조작 요소 — 버튼, 다이얼로그, 폼, 작업 목록.
- *
- * global.css와 나눈 이유: 저쪽은 "보는 화면"(씬·패널·원장)이고 여기는 "만지는 화면"이다.
- * 토큰은 tokens.css 하나를 공유하므로 색·간격이 갈라지지 않는다.
- *
- * 상태색(--status-*)은 여기서 쓰지 않는다. 그 색은 "직원이 지금 어떤가"를 뜻하고,
- * 버튼에 쓰면 관제 화면에서 색의 의미가 흐려진다.
+ * Modern Controls & Dialogs Styles
  */
 
 /* ── 버튼 ── */
 .button {
-  padding: 0.4rem 0.75rem;
+  padding: 0.45rem 0.85rem;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-small);
-  background: var(--surface-raised);
+  background: var(--surface-glass);
+  backdrop-filter: blur(10px);
   color: var(--text);
   font: inherit;
   font-size: var(--text-label);
   font-weight: 600;
   cursor: pointer;
-  transition:
-    background var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  transition: all var(--duration-fast) var(--ease-out);
 }
 
 .button:hover:not(:disabled) {
-  border-color: var(--text-faint);
-  background: var(--surface-panel);
+  border-color: rgba(255, 255, 255, 0.25);
+  background: var(--surface-glass-active);
+  transform: translateY(-1px);
 }
 
-/* 누르는 순간 살짝 내려앉는다. 클릭이 먹었는지가 지연 없이 보인다. */
 .button:active:not(:disabled) {
-  transform: translateY(1px);
+  transform: translateY(0);
 }
 
 .button:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--accent-light);
   outline-offset: 2px;
 }
 
@@ -47,37 +43,45 @@
 
 .button--primary {
   border-color: transparent;
-  background: var(--accent);
-  color: #fff;
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
 }
 
 .button--primary:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--accent) 88%, #000);
+  background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.5);
   border-color: transparent;
 }
 
 .button--ghost {
   border-color: var(--line);
-  background: transparent;
+  background: rgba(255, 255, 255, 0.04);
   color: var(--text-dim);
 }
 
+.button--ghost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
 .button--danger {
-  border-color: transparent;
-  background: transparent;
-  color: var(--status-error);
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
 }
 
 .button--danger:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--status-error) 10%, transparent);
-  border-color: color-mix(in oklab, var(--status-error) 30%, transparent);
+  background: rgba(239, 68, 68, 0.22);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #ffffff;
 }
 
 .link-button {
   padding: 0;
   border: 0;
   background: none;
-  color: var(--text-dim);
+  color: var(--accent-light);
   font: inherit;
   font-size: var(--text-tag);
   text-decoration: underline;
@@ -86,199 +90,83 @@
 }
 
 .link-button:hover {
-  color: var(--status-error);
+  color: #f87171;
 }
 
-/* ── 상단바 확장 ── */
-.topbar__lead {
-  flex: 1 1 auto;
-  margin: 0;
-  color: var(--text-dim);
-  font-size: var(--text-label);
-}
-
-.topbar__right {
-  display: flex;
+.icon-button {
+  width: 1.8rem;
+  height: 1.8rem;
+  padding: 0;
+  display: inline-flex;
   align-items: center;
-  gap: var(--gap);
-}
-
-/* ── 빈 상태 ── */
-.empty-state {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-content: center;
-  gap: var(--gap-tight);
-  padding: var(--gap-loose);
-  text-align: center;
-  /* 씬 위에 얹되 가리지는 않는다. 뒤의 빈 사무실이 비쳐 보여야 "비었다"가 전달된다. */
-  background: color-mix(in oklab, var(--surface-void) 72%, transparent);
-  pointer-events: none;
-}
-
-.empty-state h2 {
-  margin: 0;
-  font-size: 1rem;
-  letter-spacing: -0.01em;
-}
-
-.empty-state p {
-  margin: 0;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: rgba(255, 255, 255, 0.04);
   color: var(--text-dim);
-  font-size: var(--text-body);
-  line-height: 1.7;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all var(--duration-fast) var(--ease-out);
 }
 
-/* ── 패널 안의 조작부 ── */
+.icon-button:hover {
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.icon-button:focus-visible {
+  outline: 2px solid var(--accent-light);
+}
+
+/* ── 패널 내부 액션 ── */
 .panel__actions {
   display: flex;
   gap: var(--gap-tight);
-  margin-block: var(--gap);
+  margin-block: 0.75rem;
 }
 
 .panel__actions .button {
   flex: 1 1 auto;
 }
 
-.panel__note,
-.panel__error {
-  margin: 0 0 var(--gap);
-  font-size: var(--text-tag);
-  line-height: 1.5;
-}
-
-.panel__note {
-  color: var(--text-faint);
-}
-
-.panel__error {
-  color: var(--status-error);
-}
-
-.panel__count {
-  color: var(--text-faint);
-  font-size: var(--text-tag);
-  font-variant-numeric: tabular-nums;
-}
-
-/* ── 작업 목록 ── */
-
-/*
- * 목록이 레일 전체를 먹지 않게 한다. 제한이 없으면 작업이 쌓일수록 아래 패널이
- * 화면 밖으로 밀리고, 스크롤해야 보이는 것은 없는 것과 같다.
- */
-#task-panel {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  max-height: 26rem;
-  overflow: hidden;
-}
-
-#task-panel .task-list {
-  overflow-y: auto;
-  /* 스크롤 컨테이너 안쪽 여백. 마지막 항목이 잘린 것처럼 보이지 않게 한다. */
-  padding-block-end: 0.25rem;
-}
-
-.task-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gap-tight);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.task-list li {
-  padding: 0.5rem 0.625rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-small);
-  background: var(--surface-panel);
-  /* 상태를 왼쪽 띠로 표시한다. 목록을 훑을 때 글자보다 먼저 읽힌다. */
-  border-inline-start: 3px solid var(--line-strong);
-}
-
-.task-list li[data-task-status='RUNNING'] {
-  border-inline-start-color: var(--status-working);
-}
-
-.task-list li[data-task-status='QUEUED'] {
-  border-inline-start-color: var(--status-blocked);
-}
-
-.task-list li[data-task-status='FAILED'] {
-  border-inline-start-color: var(--status-error);
-}
-
-.task-list li[data-task-status='SUCCEEDED'] {
-  border-inline-start-color: var(--accent-dim);
-}
-
-.task-list__head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--gap-tight);
-  font-size: var(--text-label);
-}
-
-.task-list__who {
-  font-weight: 600;
-}
-
-.task-list__what {
-  color: var(--text-dim);
-}
-
-.task-list__state {
-  margin-inline-start: auto;
-  color: var(--text-faint);
-  font-size: var(--text-tag);
-}
-
-.task-list__detail {
-  margin: 0.25rem 0 0;
-  color: var(--text-dim);
-  font-size: var(--text-tag);
-  line-height: 1.55;
-  /* 요약문이 길 수 있다(LLM 출력). 3줄까지만 보이고 나머지는 접는다. */
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
-}
-
-.task-list__foot {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-block-start: 0.25rem;
-  color: var(--text-faint);
-  font-size: var(--text-tag);
-  font-variant-numeric: tabular-nums;
-}
-
-/* ── 다이얼로그 ── */
+/* ── 다이얼로그 (Dialog) ── */
 .dialog {
-  width: min(24rem, calc(100vw - 2rem));
+  width: min(28rem, calc(100vw - 2rem));
   padding: 0;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-accent);
   border-radius: var(--radius);
-  background: var(--surface-raised);
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(24px);
   color: var(--text);
-  box-shadow: 0 12px 40px -12px rgb(31 41 55 / 0.28);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+}
+
+.dialog[open] {
+  animation: dialog-appear var(--duration) var(--ease-out);
+}
+
+@keyframes dialog-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .dialog::backdrop {
-  background: rgb(31 41 55 / 0.28);
+  background: rgba(5, 8, 15, 0.7);
+  backdrop-filter: blur(6px);
 }
 
 .dialog__form {
   display: flex;
   flex-direction: column;
   gap: var(--gap);
-  padding: var(--gap-loose);
+  padding: 1.5rem;
 }
 
 .dialog__head {
@@ -290,43 +178,47 @@
 
 .dialog__title {
   margin: 0;
-  font-size: 0.9375rem;
-  letter-spacing: -0.01em;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text);
 }
 
 .dialog__body {
   display: flex;
   flex-direction: column;
-  gap: var(--gap);
+  gap: 1rem;
 }
 
 .dialog__lead {
   margin: 0;
   color: var(--text-dim);
   font-size: var(--text-body);
+  line-height: 1.6;
 }
 
 .dialog__foot {
   display: flex;
   justify-content: flex-end;
   gap: var(--gap-tight);
+  margin-top: 0.5rem;
 }
 
 .dialog__error {
   margin: 0;
-  padding: 0.5rem 0.625rem;
+  padding: 0.6rem 0.8rem;
   border-radius: var(--radius-small);
-  background: color-mix(in oklab, var(--status-error) 10%, transparent);
-  color: var(--status-error);
-  font-size: var(--text-tag);
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  font-size: var(--text-label);
   line-height: 1.5;
 }
 
-/* ── 폼 ── */
+/* ── 폼 입력 ── */
 .field {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.35rem;
 }
 
 .field__label {
@@ -337,25 +229,26 @@
 
 .field input,
 .field select {
-  padding: 0.45rem 0.6rem;
+  padding: 0.55rem 0.75rem;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-small);
-  background: var(--surface-raised);
+  background: rgba(0, 0, 0, 0.3);
   color: var(--text);
   font: inherit;
   font-size: var(--text-body);
+  transition: all var(--duration-fast);
 }
 
 .field input:focus-visible,
 .field select:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-  border-color: transparent;
+  outline: none;
+  border-color: var(--accent-light);
+  box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
 .field__hint {
   margin: 0;
   color: var(--text-faint);
   font-size: var(--text-tag);
-  line-height: 1.55;
+  line-height: 1.5;
 }
