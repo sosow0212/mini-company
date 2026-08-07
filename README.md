@@ -31,6 +31,28 @@ AI 직원(에이전트)이 수행한 작업을 3D 오피스로 시각화하고, 
 새 종류는 `workers/src/workflows/`에 함수 하나를 추가하고 레지스트리에 등록하면 된다 —
 에이전트 루프는 고치지 않는다.
 
+### 정해진 시각에 알아서 (반복 지시)
+
+화면 오른쪽 **반복 지시** 탭에서 "매일 09:00 · 수집가 노아 · 자료 수집"처럼 등록한다.
+그 시각이 되면 백엔드 틱 루프가 QUEUED 작업을 만들고, 그 뒤는 사람이 직접 시킨 일과
+**완전히 같은 경로**다. 갈라두면 "스케줄로 돈 것만 이상한" 상태가 생긴다.
+
+```
+[등록] 매일 09:00        → schedules 컬렉션
+[틱]   09:00~09:30 사이  → QUEUED 작업 1건 (하루 한 번만)
+[실행] 에이전트가 집어감  → 하네스 → 보고
+```
+
+- 시각 판단은 `SCHEDULE_TIMEZONE`(기본 `Asia/Seoul`) 기준이다. UTC로 두면 등록한
+  11시가 저녁 8시에 돈다.
+- 예정 시각을 **30분** 넘기면 그날은 건너뛴다. 백엔드가 몇 시간 꺼졌다 켜졌을 때
+  새벽 작업이 오후에 몰려 도는 것보다 예측 가능하다.
+- 직원이 아직 앞 작업 중이면 건너뛴다. 쌓아두면 하루치가 며칠 뒤에 몰려 실행된다.
+- 백엔드 replica가 둘이어도 작업은 하나만 생긴다(실행권을 원자적으로 가져간다).
+
+`workers/src/scheduler.py`는 `.env` 고정 cron으로 도는 **구버전**이다. UI 반복 지시가
+주 경로이므로 평소에는 띄우지 않는다.
+
 > **`QUEUED`에서 안 움직인다면** `agent` 프로세스가 떠 있지 않은 것이다.
 > `docker compose --profile app up -d agent` 또는 `make agent`.
 
@@ -70,13 +92,30 @@ make up-all
 open http://localhost:5173        # 3D 관제실
 ```
 
-프론트를 따로 개발할 때는 백엔드가 먼저 떠 있어야 한다(`/api`를 프록시한다):
+### 프론트 개발 — 빌드하지 않는다
+
+**프론트 코드를 고칠 때는 `make dev-front`를 쓴다.** 저장하면 즉시 반영된다.
 
 ```bash
 cd frontend && npm install
-make dev-front                    # http://localhost:5173
+make dev-front                    # http://localhost:5173 (핫리로드)
 make test-front                   # 타입체크 + 단위 테스트
 ```
+
+백엔드가 먼저 떠 있어야 한다 — 개발 서버가 `/api`를 그쪽으로 프록시한다.
+
+| | 주소 | 반영 방식 |
+|---|---|---|
+| **개발** `make dev-front` | 5173 | 저장 즉시 (HMR) |
+| **배포 확인** `docker compose --profile app up -d --build frontend` | 5173 | 재빌드 필요 |
+
+같은 5173을 쓴다. 둘을 동시에 띄우지 않기 위해서다 — `make dev-front`가 컨테이너
+프론트를 먼저 내리고, vite는 `strictPort`라 포트가 막혀 있으면 다른 번호로 밀리지 않고
+실패한다. 밀려서 뜨면 5173의 **정적 빌드**를 보면서 "코드를 고쳐도 화면이 안 바뀐다"고
+헤매게 된다.
+
+컨테이너 프론트는 nginx가 빌드 결과를 서빙하므로 프로덕션 동작(캐시 헤더, 번들 크기,
+`/api` 프록시)을 확인할 때만 쓴다.
 
 더미 워커 1회 실행 (백엔드와 시드가 먼저):
 
@@ -117,6 +156,10 @@ GET  /api/v1/employees/{id}/activities?limit=&cursor=   # { items, nextCursor }
 GET    /api/v1/tasks?employee_id=&status=
 POST   /api/v1/tasks                                # 일 시키기 → QUEUED
 POST   /api/v1/tasks/{id}/cancel                    # 대기 중인 지시 취소
+GET    /api/v1/schedules                            # 반복 지시 목록
+POST   /api/v1/schedules                            # "매일 hh:mm에 이 일을" 등록
+PATCH  /api/v1/schedules/{id}                       # 켜기/끄기
+DELETE /api/v1/schedules/{id}
 GET  /api/v1/ledger/summary?period=daily|monthly|all    # 서버가 aggregate한 값만
 GET  /api/v1/knowledge/documents?limit=              # 수집 문서 목록
 GET  /api/v1/knowledge/documents/{id}                # 원문 메타 상세

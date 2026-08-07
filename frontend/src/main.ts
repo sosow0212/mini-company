@@ -5,8 +5,6 @@
  *   진입 → snapshot → store → 씬 구성
  *        → WS 연결 → 이벤트 → store 패치 → 다음 프레임에 반영
  *        → 끊김 → 지수 백오프 재연결 → **성공 시 snapshot 재조회**
- *
- * 마지막 줄이 핵심이다. 재연결 후 이벤트만 이어받으면 끊긴 동안의 변경이 영구 유실된다.
  */
 
 import './styles/tokens.css';
@@ -19,12 +17,17 @@ import { OfficeScene } from './scene/OfficeScene';
 import { OfficeStore } from './state/officeStore';
 import { AssignDialog } from './ui/AssignDialog';
 import { EditDialog } from './ui/EditDialog';
+import { EmployeeDirectoryDialog } from './ui/EmployeeDirectoryDialog';
 import { EmployeePanel } from './ui/EmployeePanel';
 import { HireDialog } from './ui/HireDialog';
+import { KnowledgePanel } from './ui/KnowledgePanel';
 import { LedgerPanel } from './ui/LedgerPanel';
 import { NameTag } from './ui/NameTag';
+import { ScheduleDialog } from './ui/ScheduleDialog';
+import { SchedulePanel } from './ui/SchedulePanel';
 import { SpeechBubble } from './ui/SpeechBubble';
 import { TaskPanel } from './ui/TaskPanel';
+import { TaskResultDialog } from './ui/TaskResultDialog';
 
 const BUBBLE_SWEEP_MS = 1_000;
 
@@ -38,31 +41,39 @@ async function main(): Promise<void> {
   const store = new OfficeStore();
   const ledgerPanel = new LedgerPanel(requireElement('ledger-panel'));
   const taskPanel = new TaskPanel(requireElement('task-panel'));
+  const schedulePanel = new SchedulePanel(requireElement('schedule-panel'));
+  const knowledgePanel = new KnowledgePanel(requireElement('knowledge-panel'));
   const connectionBadge = requireElement('connection-badge');
 
-  /**
-   * 직원 목록이 바뀌면 스냅샷을 다시 받는다.
-   *
-   * 채용·해고에는 전용 WS 이벤트가 없다(상태 변경 이벤트는 이미 있는 직원에 대한 것이다).
-   * 이벤트를 새로 만드는 대신 스냅샷 재조회로 맞춘다 — 사람이 누르는 빈도라 비용이 없고,
-   * 재연결 복구가 쓰는 경로와 같아서 갈라질 코드가 없다(§12).
-   */
   const reloadRoster = async (): Promise<void> => {
     store.replaceWithSnapshot(await fetchSnapshot());
     await taskPanel.refresh();
+    await schedulePanel.refresh();
   };
 
-  // 직원이 하나도 없으면 3D 씬이 텅 빈 방이라 무엇을 해야 할지 알 수 없다.
   const emptyState = requireElement('empty-state');
 
   const hireDialog = new HireDialog();
   const assignDialog = new AssignDialog();
   const editDialog = new EditDialog();
+  const directoryDialog = new EmployeeDirectoryDialog();
+  const scheduleDialog = new ScheduleDialog();
+  const taskResultDialog = new TaskResultDialog();
+
   hireDialog.setOnDone(() => void reloadRoster());
   editDialog.setOnDone(() => void reloadRoster());
   assignDialog.setOnDone(() => void taskPanel.refresh());
+  scheduleDialog.setOnDone(() => void schedulePanel.refresh());
+  schedulePanel.setOnAdd(() => {
+    scheduleDialog.show(store.listEmployees().map((view) => view.employee));
+  });
 
-  const employeePanel = new EmployeePanel(requireElement('employee-panel'), {
+  taskPanel.setOnViewResult((task, employeeName) => {
+    const employee = store.listEmployees().find((e) => e.employee.name === employeeName)?.employee;
+    taskResultDialog.show(task, employeeName, employee?.llmProfile);
+  });
+
+  const employeePanel = new EmployeePanel(requireElement('employee-drawer'), {
     onAssign: (employee) => {
       assignDialog.show(employee);
     },
@@ -70,11 +81,40 @@ async function main(): Promise<void> {
       editDialog.show(employee);
     },
     onFired: () => void reloadRoster(),
+    onViewResult: (task, employeeName, llmProfile) => {
+      taskResultDialog.show(task, employeeName, llmProfile);
+    },
+  });
+
+  directoryDialog.setOnSelectEmployee((employee) => {
+    void employeePanel.open(employee);
+  });
+  directoryDialog.setOnHireClick(() => {
+    hireDialog.show();
   });
 
   requireElement('hire-button').addEventListener('click', () => {
     hireDialog.show();
   });
+
+  requireElement('directory-button').addEventListener('click', () => {
+    directoryDialog.open();
+  });
+
+  // 탭 전환. 선택된 패널만 남기고 나머지는 hidden — 레일 높이를 넘지 않게 한다.
+  const tabs = document.querySelectorAll<HTMLElement>('[data-tab]');
+  const panels = document.querySelectorAll<HTMLElement>('[data-tabpanel]');
+  for (const tab of tabs) {
+    tab.addEventListener('click', () => {
+      const selected = tab.dataset.tab;
+      for (const other of tabs) {
+        other.setAttribute('aria-selected', String(other.dataset.tab === selected));
+      }
+      for (const panel of panels) {
+        panel.hidden = panel.dataset.tabpanel !== selected;
+      }
+    });
+  }
 
   const scene = new OfficeScene(requireElement('scene-host'), (employeeId) => {
     if (employeeId === null) {
@@ -90,14 +130,20 @@ async function main(): Promise<void> {
 
   store.subscribe(() => {
     const employees = store.listEmployees();
-    scene.syncEmployees(employees.map((view) => view.employee));
-    taskPanel.setEmployees(employees.map((view) => view.employee));
+    const employeeList = employees.map((view) => view.employee);
+
+    scene.syncEmployees(employeeList);
+    taskPanel.setEmployees(employeeList);
+    // 진행 중인 작업의 '지금 무슨 단계인가'는 store의 최근 활동에서 온다.
+    taskPanel.setProgress(employees);
+    schedulePanel.setEmployees(employeeList);
+    directoryDialog.setEmployees(employeeList);
+
     emptyState.hidden = employees.length > 0;
 
     for (const view of employees) {
       const { id } = view.employee;
 
-      // 네임태그는 상주한다. 아바타가 새로 생길 때 한 번만 붙이고 이후 상태만 갱신한다.
       let nameTag = nameTags.get(id);
       if (nameTag === undefined) {
         nameTag = new NameTag(view.employee);
@@ -121,7 +167,6 @@ async function main(): Promise<void> {
     ledgerPanel.render(store.ledger());
   });
 
-  // 말풍선 만료는 store와 무관한 표시 관심사다. 별 타이머로 돌린다.
   window.setInterval(() => {
     const now = Date.now();
     for (const bubble of bubbles.values()) bubble.expireIfStale(now);
@@ -129,12 +174,13 @@ async function main(): Promise<void> {
 
   store.replaceWithSnapshot(await fetchSnapshot());
   void taskPanel.refresh();
+  void schedulePanel.refresh();
+  void knowledgePanel.refresh();
   scene.start();
 
   connectOfficeSocket({
     onEvent: (event) => store.apply(event),
     onReconnect: () => {
-      // 끊긴 동안의 변경을 여기서 되찾는다.
       void fetchSnapshot().then((snapshot) => store.replaceWithSnapshot(snapshot));
     },
     onStatusChange: (connected) => {

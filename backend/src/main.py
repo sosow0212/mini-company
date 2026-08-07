@@ -23,6 +23,8 @@ from src.llm.router import internal_router as llm_internal_router
 from src.logging_setup import configure_logging
 from src.realtime.factory import attach_realtime
 from src.realtime.router import public_router as realtime_public_router
+from src.schedules.router import router as schedules_router
+from src.schedules.ticker import run_schedule_loop
 from src.tasks.reaper import run_reaper_loop
 from src.tasks.router import internal_router as tasks_internal_router
 from src.tasks.router import public_router as tasks_public_router
@@ -69,6 +71,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if settings.reaper_interval_seconds > 0
         else None
     )
+    # "매일 11시에 이 일을"이 실제로 도는 자리. 때가 된 반복 지시를 QUEUED 작업으로
+    # 바꿔놓기만 하고, 실행은 에이전트가 집어간다.
+    ticker = (
+        asyncio.create_task(run_schedule_loop(settings, app.state.event_bus))
+        if settings.schedule_tick_seconds > 0
+        else None
+    )
     logger.info(
         "부팅 완료",
         extra={"app_env": settings.app_env, "reaper": reaper is not None},
@@ -80,6 +89,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # 먼저 백그라운드 루프를 세우고(새 작업 생성 중단), 그다음 열린 WS를 닫고,
         # 마지막에 커넥션을 정리한다. 순서를 바꾸면 이미 닫힌 Mongo에 회수 쿼리가 나간다.
         logger.info("종료 시작")
+        if ticker is not None:
+            await _cancel(ticker)
         if reaper is not None:
             await _cancel(reaper)
         # 버스를 먼저 멈춘다. 허브를 닫은 뒤에 이벤트가 들어오면 이미 없는 연결로
@@ -111,6 +122,7 @@ def create_app() -> FastAPI:
     app.include_router(realtime_public_router, prefix=API_PREFIX)
     app.include_router(knowledge_public_router, prefix=API_PREFIX)
     app.include_router(chat_public_router, prefix=API_PREFIX)
+    app.include_router(schedules_router, prefix=API_PREFIX)
     # 내부 라우터는 include 시점에 한 번에 잠근다. 엔드포인트마다 Depends를 붙이면
     # 새 엔드포인트를 추가할 때 반드시 하나 빠뜨린다(블루프린트 §5).
     for internal_router in (

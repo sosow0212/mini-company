@@ -1,69 +1,76 @@
 /*
- * 디자인 토큰.
+ * 디자인 토큰 — Modern Deep Dark Glassmorphism Theme.
  *
- * 방향은 "미니어처 오피스"다 — 3D 씬이 밝은 오피스 디오라마이므로 UI도 같은 세계에 둔다.
- * 따뜻한 종이색 배경에 흰 카드를 얹고, 그림자는 낮고 부드럽게. 발광(glow)은 쓰지 않는다:
- * 상태를 알리는 건 글로우가 아니라 **상태색 자체**다. 상태색만 채도를 갖고 나머지는
- * 무채색으로 눌러두면, 관제 화면에서 "지금 뭐가 이상한가"가 먼저 눈에 들어온다.
+ * 고급스럽고 현대적인 AI 관제 센터 분위기를 조성합니다.
+ * 딥 슬레이트 다크 배경(#0b0f19) 위 반투명 글래스 패널,
+ * 세련된 인디고/시안 브랜드 액센트와 네온 상태 인디케이터.
  */
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 
-  /* ── 서피스: 따뜻한 종이 → 흰 카드 2단 깊이 ── */
-  --surface-void: #ece9e2;
-  --surface-panel: #f5f3ee;
-  --surface-raised: #ffffff;
-  --surface-glass: rgb(255 255 255 / 0.86);
+  /* ── 서피스: 딥 슬레이트 다크 → 글래스 카드로 구성 ── */
+  --surface-void: #0b0f19;
+  --surface-panel: rgba(15, 23, 42, 0.75);
+  --surface-raised: rgba(23, 32, 54, 0.85);
+  --surface-glass: rgba(19, 27, 46, 0.78);
+  --surface-glass-active: rgba(30, 41, 69, 0.9);
 
-  --line: #e3dfd6;
-  --line-strong: #c9c4b8;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --line-accent: rgba(99, 102, 241, 0.4);
 
-  --text: #1f2937;
-  --text-dim: #5f6b7a;
-  --text-faint: #98a1ad;
+  --text: #f1f5f9;
+  --text-dim: #94a3b8;
+  --text-faint: #64748b;
 
-  /* 브랜드 액센트. 링크·활성 표시에 쓰고 상태를 뜻하지 않는다. */
-  --accent: #4f46e5;
-  --accent-dim: #a5b4fc;
+  /* 브랜드 액센트: Vibrant Indigo & Violet Cyan */
+  --accent: #6366f1;
+  --accent-light: #818cf8;
+  --accent-glow: rgba(99, 102, 241, 0.35);
+  --cyan-accent: #06b6d4;
 
   /*
-   * 상태색은 hex다. 3D 씬(three)과 DOM이 같은 값을 써야 하고, three의 Color가
-   * oklch를 파싱하지 못하기 때문이다. scene/palette.ts가 이 변수를 읽어간다 —
-   * 색을 바꿀 곳은 여기 한 군데다.
+   * 상태색은 Three.js와 DOM이 함께 쓰므로 6자리 hex를 유지합니다.
    */
   --status-working: #10b981;
-  --status-idle: #94a3b8;
+  --status-idle: #64748b;
   --status-blocked: #f59e0b;
-  --status-error: #f43f5e;
-  --status-offline: #cbd5e1;
+  --status-error: #ef4444;
+  --status-offline: #475569;
 
   --level-info: var(--text-dim);
   --level-warn: var(--status-blocked);
   --level-error: var(--status-error);
 
-  /* ── 타이포: 라벨은 작고 넓게, 수치는 크고 등폭 ── */
-  --font-ui: ui-sans-serif, system-ui, 'Pretendard', 'Apple SD Gothic Neo', sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', monospace;
+  /* ── 타이포그래피 ── */
+  --font-ui: 'Inter', 'Pretendard', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
 
-  --text-tag: 0.6rem;
-  --text-label: 0.6875rem;
-  --text-body: 0.8125rem;
-  --text-figure: clamp(1.5rem, 1.15rem + 1.1vw, 2.1rem);
+  --text-tag: 0.65rem;
+  --text-label: 0.75rem;
+  --text-body: 0.875rem;
+  --text-title: 1.125rem;
+  --text-figure: clamp(1.6rem, 1.2rem + 1.2vw, 2.2rem);
 
-  /* ── 리듬과 형태: 둥근 카드 + 낮은 그림자 ── */
+  /* ── 리듬과 형태: 라운디드 카드 + 글래스 그림자 ── */
   --gap-tight: 0.375rem;
   --gap: 0.75rem;
   --gap-loose: 1.25rem;
-  --radius: 12px;
+  --radius: 14px;
   --radius-small: 8px;
+  --radius-pill: 9999px;
 
   --shadow-card:
-    0 1px 2px rgb(31 41 55 / 0.05),
-    0 4px 16px -6px rgb(31 41 55 / 0.08);
+    0 4px 24px -2px rgba(0, 0, 0, 0.45),
+    0 1px 2px 0 rgba(255, 255, 255, 0.05) inset;
+  --shadow-drawer:
+    -12px 0 40px -4px rgba(0, 0, 0, 0.7),
+    0 0 1px 1px rgba(255, 255, 255, 0.1) inset;
 
-  --duration-fast: 120ms;
-  --duration: 260ms;
+  --duration-fast: 150ms;
+  --duration: 280ms;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
-  --panel-width: 19.5rem;
+  --panel-width: 21rem;
+  --drawer-width: 26rem;
 }

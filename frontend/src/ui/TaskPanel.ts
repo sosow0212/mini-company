@@ -1,38 +1,77 @@
 /**
- * 작업 목록 — 시킨 일이 지금 어디까지 갔는지.
+ * 작업 목록 (Task Panel).
  *
- * 이 패널이 답하는 질문은 하나다: **"내가 시킨 게 돌고 있나?"**
- * QUEUED가 계속 쌓여 있으면 에이전트(`python -m src.agent`)가 떠 있지 않다는 뜻이고,
- * 그 사실이 화면에 드러나야 한다 — 안 그러면 "시켰는데 아무 일도 안 일어난다"로만 보인다.
- *
- * 목록은 WS 이벤트가 아니라 폴링으로 갱신한다. 작업 상태 전이는 전용 이벤트가 없고
- * (직원 상태 변경 이벤트로 간접 추론해야 한다), 몇 초 늦어도 되는 정보다.
+ * 현재 진행 중이거나 최근 시킨 일들의 목록과 결과를 보여주며,
+ * 결과 클릭 시 상세 보고서 팝업을 열 수 있습니다.
  */
 
 import { cancelTask, fetchTasks } from '../api/client';
-import type { Employee, Task } from '../api/types';
+import type { Activity, Employee, Task } from '../api/types';
 import { TASK_STATUS_LABELS, WORKFLOWS } from '../api/types';
 import { formatClockTime } from './format';
 
 const REFRESH_MS = 3_000;
-const VISIBLE_LIMIT = 8;
+const VISIBLE_LIMIT = 10;
+/** 경과 시간을 다시 그리는 주기. 초 단위로 보여주므로 1초면 충분하다. */
+const TICK_MS = 1_000;
+
+/** 진행 중인 작업이 "지금 무슨 단계인가"의 원천. store의 최근 활동을 그대로 쓴다. */
+export interface EmployeeProgress {
+  readonly employee: Employee;
+  readonly recentActivities: readonly Activity[];
+}
 
 export class TaskPanel {
   private tasks: readonly Task[] = [];
   private employeeNames = new Map<string, string>();
+  private progress = new Map<string, EmployeeProgress>();
+  private onViewResultHandler: ((task: Task, employeeName: string) => void) | null = null;
 
   constructor(private readonly host: HTMLElement) {
     this.host.addEventListener('click', (event) => {
-      const button = (event.target as HTMLElement).closest<HTMLElement>('[data-cancel-task]');
-      if (button === null) return;
-      void this.cancel(button.dataset.cancelTask as string);
+      const target = event.target as HTMLElement;
+
+      const cancelBtn = target.closest<HTMLElement>('[data-cancel-task]');
+      if (cancelBtn !== null) {
+        void this.cancel(cancelBtn.dataset.cancelTask as string);
+        return;
+      }
+
+      const viewBtn = target.closest<HTMLElement>('[data-view-result]');
+      if (viewBtn !== null) {
+        const taskId = viewBtn.dataset.viewResult;
+        const task = this.tasks.find((t) => t.id === taskId);
+        if (task) {
+          const who = this.employeeNames.get(task.employeeId) ?? '(퇴사)';
+          this.onViewResultHandler?.(task, who);
+        }
+      }
     });
     this.render();
     window.setInterval(() => void this.refresh(), REFRESH_MS);
+    // 경과 시간만 흐르는 동안에도 숫자가 멈춰 보이지 않게 다시 그린다.
+    window.setInterval(() => {
+      if (this.tasks.some((task) => task.status === 'RUNNING')) this.render();
+    }, TICK_MS);
+  }
+
+  setOnViewResult(handler: (task: Task, employeeName: string) => void): void {
+    this.onViewResultHandler = handler;
   }
 
   setEmployees(employees: readonly Employee[]): void {
     this.employeeNames = new Map(employees.map((employee) => [employee.id, employee.name]));
+    this.render();
+  }
+
+  /**
+   * 진행 중인 작업의 "현재 단계"를 공급한다.
+   *
+   * 활동은 WS로 실시간 도착하므로(`activity.created`) 3초 폴링보다 먼저 갱신된다.
+   * 이게 없으면 "진행 중"이라는 글자만 몇 분간 떠 있고, 멈춘 건지 일하는 건지 알 수 없다.
+   */
+  setProgress(views: readonly EmployeeProgress[]): void {
+    this.progress = new Map(views.map((view) => [view.employee.id, view]));
     this.render();
   }
 
@@ -41,8 +80,7 @@ export class TaskPanel {
       this.tasks = await fetchTasks();
       this.render();
     } catch {
-      // 폴링 실패는 조용히 넘긴다. 다음 주기에 다시 시도하고, 연결 배지가 이미
-      // 끊김을 알린다 — 여기서 또 에러를 띄우면 화면이 경고로 덮인다.
+      // 폴링 실패 시 스킵
     }
   }
 
@@ -50,7 +88,7 @@ export class TaskPanel {
     try {
       await cancelTask(taskId);
     } catch {
-      // 이미 워커가 집어간 경우다(409). 새로고침하면 RUNNING으로 보인다.
+      // 이미 실행 중이면 스킵
     }
     await this.refresh();
   }
@@ -62,8 +100,8 @@ export class TaskPanel {
 
     this.host.innerHTML = `
       <header class="panel__head">
-        <h2 class="panel__title">작업</h2>
-        ${pending > 0 ? `<span class="panel__count">진행 ${String(pending)}건</span>` : ''}
+        <h2 class="panel__title">⚡ 작업 현황</h2>
+        ${pending > 0 ? `<span class="panel__count">진행 중 ${String(pending)}건</span>` : ''}
       </header>
       ${this.listMarkup()}
     `;
@@ -71,7 +109,7 @@ export class TaskPanel {
 
   private listMarkup(): string {
     if (this.tasks.length === 0) {
-      return `<p class="panel__empty">아직 시킨 일이 없습니다.<br />직원을 클릭해 일을 맡겨보세요.</p>`;
+      return `<p class="panel__empty">아직 부여된 작업이 없습니다.<br />직원을 클릭해 새로운 일을 시켜보세요.</p>`;
     }
     return `<ol class="task-list">
       ${this.tasks
@@ -85,28 +123,67 @@ export class TaskPanel {
     const who = this.employeeNames.get(task.employeeId) ?? '(퇴사)';
     const what = WORKFLOWS.find((workflow) => workflow.kind === task.kind)?.label ?? task.kind;
     const when = task.startedAt ?? task.createdAt;
-    // 완료된 작업은 결과를, 진행 중인 작업은 지시 내용을 보여준다.
-    const detail = task.status === 'SUCCEEDED' ? task.summary : (task.error ?? task.title);
+    const running = task.status === 'RUNNING';
+
     return `<li data-task-status="${task.status}">
       <div class="task-list__head">
         <span class="task-list__who">${escape(who)}</span>
         <span class="task-list__what">${escape(what)}</span>
-        <span class="task-list__state">${TASK_STATUS_LABELS[task.status]}</span>
+        <span class="task-list__state">
+          ${running ? '<span class="pulse" aria-hidden="true"></span>' : ''}
+          ${TASK_STATUS_LABELS[task.status]}
+        </span>
       </div>
-      ${detail === null || detail === '' ? '' : `<p class="task-list__detail">${escape(detail)}</p>`}
+      ${this.bodyMarkup(task)}
       <div class="task-list__foot">
         <time>${formatClockTime(when)}</time>
-        ${
-          task.status === 'QUEUED'
-            ? `<button type="button" class="link-button" data-cancel-task="${task.id}">취소</button>`
-            : ''
-        }
+        <div>
+          ${
+            running && task.startedAt !== null
+              ? `<span class="task-list__elapsed">${formatElapsed(task.startedAt)}</span>`
+              : ''
+          }
+          ${
+            task.status === 'QUEUED'
+              ? `<span class="task-list__hint">에이전트를 기다리는 중</span>`
+              : ''
+          }
+          ${
+            task.summary || task.error
+              ? `<button type="button" class="link-button" data-view-result="${task.id}">📄 결과 보기</button>`
+              : ''
+          }
+          ${
+            task.status === 'QUEUED'
+              ? `<button type="button" class="link-button" data-cancel-task="${task.id}">취소</button>`
+              : ''
+          }
+        </div>
       </div>
     </li>`;
   }
+
+  /** 진행 중이면 지금 무슨 단계인지, 끝났으면 결과를 보여준다. */
+  private bodyMarkup(task: Task): string {
+    if (task.status === 'RUNNING') {
+      const step = this.progress.get(task.employeeId)?.recentActivities.at(0);
+      // 활동이 아직 없으면 하네스가 막 붙은 참이다.
+      return `<p class="task-list__step">${escape(step?.message ?? '작업을 시작하는 중…')}</p>`;
+    }
+    const detail = task.status === 'SUCCEEDED' ? task.summary : (task.error ?? task.title);
+    return detail ? `<p class="task-list__detail">${escape(detail)}</p>` : '';
+  }
 }
 
-/** 서버 문자열을 innerHTML에 넣기 전에 이스케이프한다. 요약문은 LLM 출력이다. */
+/** 시작 후 흐른 시간. 분을 넘기면 초는 버린다 — 그 정밀도가 의미를 갖지 않는다. */
+function formatElapsed(startedAt: string): string {
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
+  if (seconds < 60) return `${String(seconds)}초째`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${String(minutes)}분째`;
+  return `${String(Math.floor(minutes / 60))}시간 ${String(minutes % 60)}분째`;
+}
+
 function escape(value: string): string {
   const element = document.createElement('span');
   element.textContent = value;

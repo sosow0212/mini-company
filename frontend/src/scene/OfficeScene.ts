@@ -77,8 +77,8 @@ function framingFor(desks: readonly { x: number; z: number }[]): {
   };
 }
 
-/** 페이지 배경(--surface-void)과 이어지는 따뜻한 종이색. */
-const BACKGROUND = 0xe6e1d7;
+/** 페이지 배경(--surface-void)과 이어지는 딥 다크 모드 스레이트 배경. */
+const BACKGROUND = 0x0b0f19;
 
 const BLOOM_STRENGTH = 0.5;
 const BLOOM_RADIUS = 0.55;
@@ -164,6 +164,7 @@ export class OfficeScene {
     });
 
     this.renderer.domElement.addEventListener('pointerdown', this.handlePointerDown);
+    this.renderer.domElement.addEventListener('pointermove', this.handlePointerMove);
     window.addEventListener('resize', this.handleResize);
   }
 
@@ -234,6 +235,7 @@ export class OfficeScene {
     cancelAnimationFrame(this.frame);
     window.removeEventListener('resize', this.handleResize);
     this.renderer.domElement.removeEventListener('pointerdown', this.handlePointerDown);
+    this.renderer.domElement.removeEventListener('pointermove', this.handlePointerMove);
     for (const avatar of this.avatars.values()) avatar.dispose();
     for (const workstation of this.workstations.values()) workstation.dispose();
     this.composer.dispose();
@@ -247,6 +249,19 @@ export class OfficeScene {
     this.renderer.setSize(width, height);
     this.composer.setSize(width, height);
     this.labelRenderer.setSize(width, height);
+  };
+
+  private readonly handlePointerMove = (event: PointerEvent): void => {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const pointer = new Vector2(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    this.raycaster.setFromCamera(pointer, this.camera);
+
+    const targets = [...this.avatars.values()].flatMap((avatar) => [...avatar.pickables]);
+    const hit = this.raycaster.intersectObjects(targets, false).at(0);
+    this.renderer.domElement.style.cursor = hit !== undefined ? 'pointer' : 'default';
   };
 
   private readonly handlePointerDown = (event: PointerEvent): void => {

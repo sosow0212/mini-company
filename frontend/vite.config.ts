@@ -5,6 +5,10 @@ const BACKEND = process.env.BACKEND_ORIGIN ?? 'http://localhost:8000';
 export default defineConfig({
   server: {
     port: 5173,
+    // 포트가 막혀 있으면 5174로 조용히 밀리지 않고 실패한다.
+    // 밀려서 뜨면 컨테이너 프론트(5173, 정적 빌드)를 보면서 "코드를 고쳐도 화면이
+    // 안 바뀐다"고 헤매게 된다. 실패하는 편이 원인을 즉시 알려준다.
+    strictPort: true,
     // 백엔드를 프록시로 붙여 브라우저 기준 동일 출처를 만든다.
     // 그래서 백엔드에 CORS를 열 필요가 없다 — 프로덕션에서도 nginx가 같은 역할을 한다.
     proxy: {

@@ -98,6 +98,45 @@ export const WORKFLOWS = [
   },
 ] as const;
 
+/** 반복 지시 — "매일 hour:minute에 이 직원에게 이 일을". */
+export interface Schedule {
+  readonly id: string;
+  readonly employeeId: string;
+  readonly kind: string;
+  readonly title: string | null;
+  readonly hour: number;
+  readonly minute: number;
+  readonly enabled: boolean;
+  /** 마지막으로 작업을 만든 시각. null이면 아직 한 번도 안 돌았다. */
+  readonly lastRunAt: string | null;
+  readonly createdAt: string;
+}
+
+/** 지식 베이스에 적재된 문서 1건. 본문은 내려오지 않는다(길이만). */
+export interface KnowledgeDocument {
+  readonly id: string;
+  readonly title: string;
+  readonly sourceUrl: string | null;
+  readonly sourceType: string;
+  readonly contentType: string;
+  readonly collectedBy: string;
+  readonly taskId: string | null;
+  readonly collectedAt: string;
+  readonly chunkCount: number;
+  readonly chunkingStrategy: string;
+  readonly sectionCount: number;
+  readonly indexedAt: string | null;
+  readonly textLength: number;
+  readonly metadata: {
+    readonly title: string | null;
+    readonly author: string | null;
+    readonly description: string | null;
+    readonly publishedAt: string | null;
+    readonly siteName: string | null;
+    readonly keywords: readonly string[];
+  };
+}
+
 export const ROLE_LABELS: Readonly<Record<Role, string>> = {
   COLLECTOR: '수집가',
   ANALYST: '분석가',

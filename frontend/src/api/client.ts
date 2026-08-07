@@ -5,7 +5,16 @@
  * 그래서 절대 URL도, CORS도 필요 없다.
  */
 
-import type { Activity, CursorPage, Employee, OfficeSnapshot, Role, Task } from './types';
+import type {
+  Activity,
+  CursorPage,
+  Employee,
+  KnowledgeDocument,
+  OfficeSnapshot,
+  Role,
+  Schedule,
+  Task,
+} from './types';
 
 const API = '/api/v1';
 
@@ -108,4 +117,34 @@ export function assignTask(employeeId: string, kind: string, title: string): Pro
 
 export function cancelTask(taskId: string): Promise<Task> {
   return send<Task>('POST', `/tasks/${taskId}/cancel`);
+}
+
+// ─── 반복 지시 ────────────────────────────────────────────────
+
+export function fetchSchedules(): Promise<readonly Schedule[]> {
+  return get<readonly Schedule[]>('/schedules');
+}
+
+export function createSchedule(input: {
+  employeeId: string;
+  kind: string;
+  hour: number;
+  minute: number;
+  title: string;
+}): Promise<Schedule> {
+  return send<Schedule>('POST', '/schedules', { ...input, title: input.title || null });
+}
+
+export function setScheduleEnabled(id: string, enabled: boolean): Promise<Schedule> {
+  return send<Schedule>('PATCH', `/schedules/${id}`, { enabled });
+}
+
+export function deleteSchedule(id: string): Promise<void> {
+  return send<void>('DELETE', `/schedules/${id}`);
+}
+
+// ─── 지식 베이스 ──────────────────────────────────────────────
+
+export function fetchDocuments(limit = 20): Promise<readonly KnowledgeDocument[]> {
+  return get<readonly KnowledgeDocument[]>(`/knowledge/documents?limit=${String(limit)}`);
 }
